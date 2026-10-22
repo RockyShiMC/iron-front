@@ -1,0 +1,229 @@
+:root {
+  --sidebar-w: 220px;
+  --panel: #15191c;
+  --panel-2: #1f262b;
+  --edge: #3b464d;
+  --text: #d9e2e6;
+  --muted: #8a989f;
+  --accent: #e0b43d;
+  --good: #4ee04e;
+  --warn: #f0d040;
+  --bad: #ee4040;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--text);
+  font: 13px/1.35 "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+#game { position: absolute; left: 0; top: 0; display: block; }
+
+#sidebar {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: linear-gradient(180deg, #1b2125, #101315);
+  border-left: 2px solid var(--edge);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#credits {
+  font: bold 20px/1 Consolas, monospace;
+  color: var(--accent);
+  text-align: center;
+  padding: 6px 0;
+  background: #0b0d0e;
+  border: 1px solid var(--edge);
+  letter-spacing: 1px;
+}
+
+#minimap {
+  width: 200px;
+  height: 104px;
+  border: 1px solid var(--edge);
+  background: #05080a;
+  cursor: pointer;
+}
+
+#power { height: 8px; background: #0b0d0e; border: 1px solid var(--edge); }
+#power-fill { height: 100%; width: 0; background: var(--good); transition: width 0.3s; }
+#power-fill.warn { background: var(--warn); }
+#power-fill.low { background: var(--bad); }
+#power-text { font-size: 11px; color: var(--muted); text-align: center; }
+
+#tabs { display: flex; gap: 3px; }
+#audio-ctl { display: flex; gap: 4px; }
+#tabs button, #actions button, #audio-ctl button {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--edge);
+  padding: 5px 2px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#tabs button.active { background: #34434c; border-color: #6d8796; color: #fff; }
+#tabs button.flash { background: #6b5a1c; }
+#actions { display: flex; gap: 4px; }
+#audio-ctl button { font-size: 10px; padding: 3px 2px; color: var(--muted); }
+#actions button.active { background: #6b2c22; border-color: #c55; }
+
+#items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  align-content: start;
+  min-height: 160px;
+}
+
+.item {
+  position: relative;
+  height: 64px;
+  background: linear-gradient(160deg, #2c3a42, #182025);
+  border: 1px solid var(--edge);
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 4px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.item:hover { border-color: #8fb0c0; }
+.item .name { position: relative; font-weight: 600; font-size: 12px; }
+.item .cost { position: relative; color: var(--accent); font-family: Consolas, monospace; font-size: 11px; }
+.item .count { position: absolute; right: 4px; top: 3px; font-weight: bold; color: #fff; }
+.item .state { position: absolute; right: 4px; bottom: 3px; font-size: 9px; font-weight: bold; color: var(--muted); }
+.item .prog {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 0;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.item.disabled { opacity: 0.35; cursor: not-allowed; }
+.item.ready { border-color: var(--good); }
+.item.ready .state { color: var(--good); }
+.item.placing { box-shadow: inset 0 0 0 2px var(--good); }
+
+#selinfo {
+  margin-top: auto;
+  min-height: 70px;
+  padding: 6px;
+  background: #0b0d0e;
+  border: 1px solid var(--edge);
+  font-size: 12px;
+}
+#selinfo small { color: var(--muted); }
+#selinfo .enemy { color: var(--bad); }
+
+#messages {
+  position: absolute;
+  top: 12px;
+  left: calc((100% - var(--sidebar-w)) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.msg {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #2f4f3f;
+  color: #8dfca8;
+  padding: 3px 12px;
+  font: 14px Consolas, monospace;
+  transition: opacity 0.6s;
+}
+.msg.warn { color: var(--warn); border-color: #5a5020; }
+.msg.alert { color: #ff7a6a; border-color: #6a2a22; }
+.msg.fade { opacity: 0; }
+
+#paused {
+  position: absolute;
+  inset: 0 var(--sidebar-w) 0 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font: bold 28px Consolas, monospace;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(20, 10, 5, 0.75), rgba(0, 0, 0, 0.92));
+  z-index: 10;
+}
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--edge);
+  padding: 24px 32px;
+  max-width: 520px;
+  text-align: center;
+}
+.panel h1 {
+  margin: 0 0 6px;
+  font: bold 36px/1.1 Impact, "Arial Black", sans-serif;
+  letter-spacing: 3px;
+  color: #e24a2e;
+  text-transform: uppercase;
+}
+.panel .sub { color: var(--muted); }
+.controls { margin: 12px auto; border-collapse: collapse; text-align: left; font-size: 12px; }
+.controls td { padding: 2px 10px; }
+.controls td:first-child { color: var(--accent); white-space: nowrap; text-align: right; }
+.panel button {
+  margin-top: 10px;
+  background: #8c2a1b;
+  color: #fff;
+  border: 1px solid #d0553e;
+  font: bold 16px sans-serif;
+  padding: 10px 28px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.panel button:hover { background: #a9341f; }
+.panel h2 { margin: 14px 0 6px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: var(--text); }
+
+.factions { display: flex; gap: 12px; }
+.panel .faction {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 10px;
+  margin: 0;
+  font: 12px/1.4 "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.panel .faction:hover { transform: translateY(-2px); }
+.faction .fname { font: bold 22px Impact, "Arial Black", sans-serif; letter-spacing: 2px; text-transform: uppercase; }
+.faction .fdesc { color: rgba(255, 255, 255, 0.75); }
+.panel .faction.allied { background: linear-gradient(160deg, #24508c, #142c4d); border-color: #5b9be8; }
+.panel .faction.allied:hover { box-shadow: 0 0 16px rgba(91, 155, 232, 0.6); }
+.panel .faction.soviet { background: linear-gradient(160deg, #8c2a1b, #4d140c); border-color: #e0553e; }
+.panel .faction.soviet:hover { box-shadow: 0 0 16px rgba(224, 85, 62, 0.6); }
+
+/* Sidebar accent follows the chosen faction */
+body[data-faction="allied"] #sidebar { border-left-color: #2f5c92; }
+body[data-faction="soviet"] #sidebar { border-left-color: #8c2a1b; }
+body[data-faction="soviet"] #tabs button.active { background: #5a2a22; border-color: #b0503e; }

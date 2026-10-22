@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iron Front</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <aside id="sidebar">
+    <div id="credits">$ 0</div>
+    <canvas id="minimap" width="200" height="104"></canvas>
+    <div id="power"><div id="power-fill"></div></div>
+    <div id="power-text"></div>
+    <div id="tabs"></div>
+    <div id="items"></div>
+    <div id="actions">
+      <button id="btn-repair">Repair</button>
+      <button id="btn-sell">Sell</button>
+    </div>
+    <div id="audio-ctl">
+      <button id="btn-sfx" title="Toggle sound effects (M)">Sound: On</button>
+      <button id="btn-voice" title="Toggle EVA voice (V)">EVA: On</button>
+    </div>
+    <div id="selinfo"></div>
+  </aside>
+
+  <div id="messages"></div>
+  <div id="paused">PAUSED — press P to resume</div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>Iron Front</h1>
+      <p class="sub">A Red Alert 2–style skirmish. Build a base, mine ore, destroy the enemy.</p>
+      <table class="controls">
+        <tr><td>Left click</td><td>Select / move / attack</td></tr>
+        <tr><td>Drag</td><td>Box select units</td></tr>
+        <tr><td>Right click</td><td>Deselect / cancel</td></tr>
+        <tr><td>Double click</td><td>Select all of that type on screen</td></tr>
+        <tr><td>A</td><td>Attack-move</td></tr>
+        <tr><td>S</td><td>Stop</td></tr>
+        <tr><td>Q</td><td>Select all combat units</td></tr>
+        <tr><td>Ctrl+1–9 / 1–9</td><td>Set / recall group (double tap to jump)</td></tr>
+        <tr><td>H</td><td>Jump to base</td></tr>
+        <tr><td>Arrows / screen edge / middle drag</td><td>Scroll</td></tr>
+        <tr><td>P</td><td>Pause</td></tr>
+        <tr><td>M / V</td><td>Toggle sound effects / EVA voice</td></tr>
+      </table>
+      <p class="sub">Tip: Power → Ore Refinery → Barracks → War Factory → Radar unlocks advanced units and defenses.</p>
+      <h2>Choose your side</h2>
+      <div class="factions">
+        <button class="faction allied" data-faction="allied">
+          <span class="fname">Allies</span>
+          <span class="fdesc">Grizzly&nbsp;Tank · Prism&nbsp;Tank · Guardian&nbsp;GI · Prism&nbsp;Tower · Chrono&nbsp;Miner (teleports&nbsp;home)</span>
+        </button>
+        <button class="faction soviet" data-faction="soviet">
+          <span class="fname">Soviets</span>
+          <span class="fdesc">Rhino&nbsp;Tank · Apocalypse&nbsp;Tank · Tesla&nbsp;Trooper · Tesla&nbsp;Coil · War&nbsp;Miner (armed)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

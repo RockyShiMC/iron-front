@@ -1,0 +1,17 @@
+# Dependencies (none today, but keep them out if added later)
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Local Claude Code settings (launch.json is shared and stays tracked)
+.claude/settings.local.json
