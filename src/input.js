@@ -75,6 +75,13 @@ export class Input {
     return this.selection.filter((e) => e.isUnit && e.owner === this.g.human);
   }
 
+  // The unit that answers for a group: the most expensive one
+  spokesman(units) {
+    let best = null;
+    for (const u of units) if (!best || u.def.cost > best.def.cost) best = u;
+    return best;
+  }
+
   cancel() {
     if (this.placing) this.placing = null;
     else if (this.mode) this.mode = null;
@@ -140,7 +147,7 @@ export class Input {
     } else {
       this.selection = picked;
     }
-    if (picked.length) g.sound('select');
+    if (picked.length) { g.sound('select'); g.voice(this.spokesman(picked), 'select'); }
   }
 
   // ---------- clicking ----------
@@ -178,7 +185,12 @@ export class Input {
       this.mode = null;
       if (!units.length) return;
       if (ent && ent.owner !== human) this.attack(units, ent);
-      else { g.groupOrder(units, w.x, w.y, 'attackmove'); this.addMarker(w.x, w.y, '#ff6060'); g.sound('attack'); }
+      else {
+        g.groupOrder(units, w.x, w.y, 'attackmove');
+        this.addMarker(w.x, w.y, '#ff6060');
+        g.sound('attack');
+        g.voice(this.spokesman(units), 'attack');
+      }
       return;
     }
 
@@ -188,6 +200,7 @@ export class Input {
         for (const h of harvesters) h.orderDock(g, ent);
         this.addMarker(ent.x, ent.y, '#e8c547');
         g.sound('move');
+        g.voice(this.spokesman(harvesters), 'move');
         return;
       }
       const now = performance.now();
@@ -203,6 +216,7 @@ export class Input {
       }
       this.lastClick = { time: now, key: ent.key };
       g.sound(ent.isUnit ? 'select' : 'click');
+      if (ent.isUnit) g.voice(ent, 'select');
       return;
     }
 
@@ -220,6 +234,7 @@ export class Input {
       if (movers.length) g.groupOrder(movers, w.x, w.y, 'move');
       this.addMarker(w.x, w.y, harvesters.length ? '#e8c547' : '#60ff60');
       g.sound('move');
+      g.voice(this.spokesman(units), 'move');
       return;
     }
 
@@ -240,6 +255,7 @@ export class Input {
     }
     this.addMarker(target.x, target.y, '#ff4040');
     this.g.sound('attack');
+    this.g.voice(this.spokesman(units.filter((u) => u.weapon)), 'attack');
   }
 
   // ---------- keyboard ----------
@@ -257,6 +273,7 @@ export class Input {
         g.notify(`Group ${n} set`, 'info', 0);
       } else if (this.groups[n]) {
         this.selection = this.groups[n].filter((u) => !u.dead);
+        if (this.selection.length) g.voice(this.spokesman(this.selection), 'select');
         const now = performance.now();
         if (this.lastGroupKey.n === n && now - this.lastGroupKey.time < 400 && this.selection.length) {
           this.r.centerOn(this.selection[0].x, this.selection[0].y);

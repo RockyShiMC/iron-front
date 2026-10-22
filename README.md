@@ -35,6 +35,8 @@ Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar
 - A skirmish AI that follows a build order, keeps its harvesters topped up, defends its base and sends attack waves that grow over time
 - Sell, repair, rally points, control groups and a minimap
 - Sound: every effect is synthesized live with the Web Audio API (guns, cannons, rockets, Tesla crackle, Prism hum, explosions, construction, chrono teleports, interface chirps). Battle sounds fade with distance from the screen center and pan left/right
+- Procedural textures: the map is painted per pixel from noise (grass tones, dirt patches, sandy shores with foam, deep/shallow water with glints, rocky ground, faceted boulders, bushes, tufts, flowers); buildings have shaded walls, panel seams, windows, parapets and drop shadows; tanks have rolling treads, two-tier hulls, shaded turrets and muzzle brakes; ore is faceted crystal on stained soil
+- Unit voice responses: every unit type has its own lines, pitch and speed for selection, move and attack orders (e.g. Conscript "For the Union!", Apocalypse "Annihilate them!"). EVA outranks unit chatter
 - EVA announcements through the browser's speech synthesis (prefers a female English voice): "Construction complete", "Unit ready", "Our base is under attack", "Ore miner under attack", "Low power", "New construction options", "Insufficient funds", "Mission accomplished"… Toggle with M (sound) / V (EVA) or the sidebar buttons; the setting is remembered
 
 ## Controls
@@ -50,7 +52,7 @@ Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar
 | H | Jump to base |
 | Arrows, screen edge, middle-drag | Scroll |
 | P | Pause |
-| M / V | Toggle sound effects / EVA voice |
+| M / V / U | Toggle sound effects / EVA / unit voices |
 
 ## Code map
 
@@ -73,7 +75,7 @@ The simulation (`game.js` and everything it imports) doesn't touch the DOM, so i
 ## Roadmap ideas
 
 - More faction units: Kirov Airship, IFV, Engineer, Spy, Tanya, V3 Launcher
-- Unit voice responses ("Yes sir!", "Moving out") and music
+- Music
 - Sprite art (replacing the procedural shapes)
 - Aircraft and naval units, walls, superweapons
 - Engineers capturing buildings, veterancy

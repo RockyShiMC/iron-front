@@ -339,6 +339,11 @@ export class Game {
     if (this.soundEnabled) this.soundEvents.push({ name, x, y });
   }
 
+  // A unit of ours answers: line is 'select' | 'move' | 'attack'
+  voice(unit, line) {
+    if (this.soundEnabled && unit && unit.owner === this.human) this.soundEvents.push({ name: 'voice', unit: unit.key, line });
+  }
+
   notify(text, kind = 'info', throttle = 3) {
     const last = this.lastNotice[text] ?? -999;
     if (this.time - last < throttle) return;

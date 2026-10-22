@@ -1,6 +1,6 @@
 import { TILE_W, TILE_H, HALF_W, HALF_H, BUILDINGS } from './config.js';
 import { GRASS, WATER, ROCK } from './map.js';
-import { shade, hashTile, clamp, mulberry32 } from './util.js';
+import { shade, hashTile, clamp, mulberry32, fbm, vnoise, smoothstep, dist } from './util.js';
 
 // Allied structures are pale concrete, Soviet ones dark rust-brown
 const STYLE = {
@@ -61,6 +61,8 @@ export class Renderer {
   }
 
   // ---------- terrain ----------
+  // Paints the whole map once, pixel by pixel. Smooth noise fields are sampled
+  // on a quarter-tile grid and interpolated, which keeps this fast (~a few hundred ms).
   prerenderTerrain() {
     const m = this.g.map, S = m.w;
     const c = document.createElement('canvas');
@@ -68,66 +70,201 @@ export class Renderer {
     c.height = S * TILE_H + TILE_H;
     const ctx = c.getContext('2d');
     const ox = S * HALF_W;
-    const rng = mulberry32(1234);
-    const diamond = (x, y, fill) => {
-      const cx = (x - y) * HALF_W + ox, cy = (x + y) * HALF_H;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 0.5);
-      ctx.lineTo(cx + HALF_W + 0.5, cy + HALF_H);
-      ctx.lineTo(cx, cy + TILE_H + 0.5);
-      ctx.lineTo(cx - HALF_W - 0.5, cy + HALF_H);
-      ctx.closePath();
-      ctx.fillStyle = fill;
-      ctx.fill();
-      return { cx, cy: cy + HALF_H };
-    };
-    const isWater = (x, y) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === WATER;
 
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) {
-        const i = m.idx(x, y);
-        const v = m.variant[i];
-        const t = m.terrain[i];
-        if (t === WATER) {
-          const shore = !isWater(x + 1, y) || !isWater(x - 1, y) || !isWater(x, y + 1) || !isWater(x, y - 1);
-          diamond(x, y, shore ? `hsl(200, 45%, ${30 + v * 4}%)` : `hsl(210, 55%, ${20 + v * 5}%)`);
-        } else {
-          const { cx, cy } = diamond(x, y, `hsl(${84 + v * 16}, ${30 + v * 10}%, ${27 + v * 6}%)`);
-          for (let k = 0; k < 4; k++) {
-            ctx.fillStyle = rng() < 0.5 ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,200,0.07)';
-            ctx.fillRect(cx + (rng() - 0.5) * HALF_W, cy + (rng() - 0.5) * HALF_H, 2, 1);
-          }
-        }
+    // --- low-res fields (R samples per tile) ---
+    const R = 4, FW = S * R + 1;
+    const fGrass = new Float32Array(FW * FW), fDirt = new Float32Array(FW * FW), fMott = new Float32Array(FW * FW);
+    const fWater = new Float32Array(FW * FW), fRock = new Float32Array(FW * FW);
+    const tileIs = (t) => (x, y) => {
+      // bilinear blend of the per-tile indicator, sampled between tile centers
+      const gx = clamp(x - 0.5, 0, S - 1), gy = clamp(y - 0.5, 0, S - 1);
+      const ix = Math.min(S - 2, Math.floor(gx)), iy = Math.min(S - 2, Math.floor(gy));
+      const fx = gx - ix, fy = gy - iy;
+      const v = (xx, yy) => (m.terrain[yy * S + xx] === t ? 1 : 0);
+      const a = v(ix, iy), b = v(ix + 1, iy), cc = v(ix, iy + 1), d = v(ix + 1, iy + 1);
+      return a + (b - a) * fx + (cc - a) * fy + (a - b - cc + d) * fx * fy;
+    };
+    const waterAt = tileIs(WATER), rockAt = tileIs(ROCK);
+    for (let j = 0; j < FW; j++) {
+      for (let i = 0; i < FW; i++) {
+        const x = i / R, y = j / R, k = j * FW + i;
+        fGrass[k] = fbm(x * 0.28, y * 0.28, 4);
+        fDirt[k] = fbm(x * 0.17 + 40, y * 0.17 + 40, 3);
+        fMott[k] = fbm(x * 1.3, y * 1.3, 2);
+        fWater[k] = waterAt(x, y) + (vnoise(x * 1.4 + 7, y * 1.4) - 0.5) * 0.32;
+        fRock[k] = rockAt(x, y) + (vnoise(x * 2 + 3, y * 2) - 0.5) * 0.3;
       }
     }
-    // Rocks get drawn as raised lumps, back to front
+    const samp = (F, x, y) => {
+      const fx = clamp(x * R, 0, FW - 1.001), fy = clamp(y * R, 0, FW - 1.001);
+      const ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy, k = iy * FW + ix;
+      const a = F[k], b = F[k + 1], cc = F[k + FW], d = F[k + FW + 1];
+      return a + (b - a) * tx + (cc - a) * ty + (a - b - cc + d) * tx * ty;
+    };
+
+    // --- palette ---
+    const G1 = [80, 112, 46], G2 = [128, 154, 70], DIRT = [138, 116, 80], ROCKG = [104, 98, 84];
+    const SAND = [178, 162, 116], SHALLOW = [44, 104, 118], DEEP = [18, 48, 82], FOAM = [210, 225, 215];
+    const grain = new Uint8Array(65536);
+    const rng = mulberry32(99);
+    for (let i = 0; i < grain.length; i++) grain[i] = (rng() * 255) | 0;
+
+    const img = ctx.createImageData(c.width, c.height);
+    const px = img.data;
+    for (let py = 0; py < c.height; py++) {
+      const Y = py;
+      for (let pxi = 0; pxi < c.width; pxi++) {
+        const X = pxi - ox;
+        const x = (X / HALF_W + Y / HALF_H) / 2, y = (Y / HALF_H - X / HALF_W) / 2;
+        if (x < 0 || y < 0 || x >= S || y >= S) continue;
+        const o = (py * c.width + pxi) * 4;
+        const gN = samp(fGrass, x, y), mott = (samp(fMott, x, y) - 0.5) * 34;
+        let r = G1[0] + (G2[0] - G1[0]) * gN + mott;
+        let gg = G1[1] + (G2[1] - G1[1]) * gN + mott;
+        let b = G1[2] + (G2[2] - G1[2]) * gN + mott * 0.6;
+        // dirt patches
+        const dW = smoothstep(0.64, 0.76, samp(fDirt, x, y)) * 0.85;
+        if (dW > 0) { r += (DIRT[0] + mott - r) * dW; gg += (DIRT[1] + mott - gg) * dW; b += (DIRT[2] + mott - b) * dW; }
+        // rocky ground
+        const rW = smoothstep(0.3, 0.6, samp(fRock, x, y));
+        if (rW > 0) { r += (ROCKG[0] + mott - r) * rW; gg += (ROCKG[1] + mott - gg) * rW; b += (ROCKG[2] + mott - b) * rW; }
+        // shoreline and water
+        const w = samp(fWater, x, y);
+        if (w > 0.5) {
+          const dpt = smoothstep(0.5, 0.95, w);
+          const ripple = Math.sin((x * 3.1 + y * 2.3) * 2 + mott * 0.2) * 5;
+          r = SHALLOW[0] + (DEEP[0] - SHALLOW[0]) * dpt + ripple;
+          gg = SHALLOW[1] + (DEEP[1] - SHALLOW[1]) * dpt + ripple;
+          b = SHALLOW[2] + (DEEP[2] - SHALLOW[2]) * dpt + ripple;
+          const foam = 1 - smoothstep(0, 0.035, w - 0.5);
+          if (foam > 0) { r += (FOAM[0] - r) * foam * 0.7; gg += (FOAM[1] - gg) * foam * 0.7; b += (FOAM[2] - b) * foam * 0.7; }
+        } else if (w > 0.34) {
+          const sW = smoothstep(0.34, 0.46, w);
+          r += (SAND[0] + mott * 0.5 - r) * sW; gg += (SAND[1] + mott * 0.5 - gg) * sW; b += (SAND[2] + mott * 0.5 - b) * sW;
+        }
+        // fine grain + slight darkening at the map edge
+        const n = grain[(pxi * 7 + py * 131) & 65535] / 255 - 0.5;
+        const edge = 0.7 + 0.3 * smoothstep(0, 0.8, Math.min(x, y, S - x, S - y));
+        px[o] = (r + n * 12) * edge;
+        px[o + 1] = (gg + n * 12) * edge;
+        px[o + 2] = (b + n * 10) * edge;
+        px[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+
+    // --- decorations, back to front ---
+    const near = (x, y, r) => m.starts.some((s) => dist(x, y, s.x + 1.5, s.y + 1.5) < r);
+    this.waterTiles = [];
     for (let s = 0; s < S * 2; s++) {
       for (let x = 0; x <= s; x++) {
         const y = s - x;
-        if (!m.inBounds(x, y) || m.terrain[m.idx(x, y)] !== ROCK) continue;
+        if (!m.inBounds(x, y)) continue;
+        const i = m.idx(x, y), t = m.terrain[i];
         const cx = (x - y) * HALF_W + ox, cy = (x + y) * HALF_H + HALF_H;
-        const v = m.variant[m.idx(x, y)];
-        const h = 10 + v * 14;
-        ctx.fillStyle = '#4c4a44';
-        ctx.beginPath();
-        ctx.moveTo(cx - HALF_W + 2, cy);
-        ctx.lineTo(cx - 8, cy - h);
-        ctx.lineTo(cx + 6, cy - h - 4);
-        ctx.lineTo(cx + HALF_W - 2, cy);
-        ctx.lineTo(cx, cy + HALF_H - 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#6e6b62';
-        ctx.beginPath();
-        ctx.moveTo(cx - 8, cy - h);
-        ctx.lineTo(cx + 6, cy - h - 4);
-        ctx.lineTo(cx + HALF_W - 2, cy);
-        ctx.lineTo(cx + 2, cy - 2);
-        ctx.closePath();
-        ctx.fill();
+        if (t === WATER) { this.waterTiles.push(i); continue; }
+        if (t === ROCK) { this.drawBoulders(ctx, cx, cy, x, y); continue; }
+        if (m.oreMax[i] || near(x, y, 5)) continue;
+        const h = hashTile(x * 3 + 1, y * 5 + 2);
+        if (h < 0.05) this.drawBush(ctx, cx + (hashTile(x, y) - 0.5) * 30, cy + (hashTile(y, x) - 0.5) * 12, 3 + h * 60);
+        else if (h < 0.13) this.drawTufts(ctx, cx, cy, x, y);
+        else if (h < 0.17) this.drawPebbles(ctx, cx, cy, x, y);
+        else if (h < 0.19) this.drawFlowers(ctx, cx, cy, x, y);
       }
     }
     return c;
+  }
+
+  drawBoulders(ctx, cx, cy, x, y) {
+    const n = 2 + Math.floor(hashTile(x, y + 9) * 3);
+    for (let k = 0; k < n; k++) {
+      const bx = cx + (hashTile(x + k, y * 3) - 0.5) * 34, by = cy + (hashTile(x * 5, y + k) - 0.5) * 12 + k * 2;
+      const r = 7 + hashTile(x + k * 7, y) * 9, h = r * (0.9 + hashTile(y, x + k) * 0.8);
+      // shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(bx + 3, by + 1, r * 1.1, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+      // dark (right) face
+      ctx.fillStyle = '#4a463e';
+      ctx.beginPath();
+      ctx.moveTo(bx - r, by); ctx.lineTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05);
+      ctx.lineTo(bx + r, by - h * 0.2); ctx.lineTo(bx + r * 0.6, by + r * 0.3); ctx.lineTo(bx - r * 0.5, by + r * 0.35);
+      ctx.closePath(); ctx.fill();
+      // lit (left/top) faces
+      ctx.fillStyle = '#7d776a';
+      ctx.beginPath();
+      ctx.moveTo(bx - r, by); ctx.lineTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05); ctx.lineTo(bx - r * 0.05, by - h * 0.35);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#9a9384';
+      ctx.beginPath();
+      ctx.moveTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05); ctx.lineTo(bx + r * 0.05, by - h * 0.6);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(bx - r * 0.05, by - h * 0.35); ctx.lineTo(bx + r * 0.2, by + r * 0.2); ctx.stroke();
+    }
+  }
+
+  drawBush(ctx, x, y, r) {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(x + 3, y + 1, r * 1.4, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    const blobs = [[-0.6, -0.5, 0.75], [0.5, -0.4, 0.8], [0, -0.9, 0.85], [0, -0.3, 0.9]];
+    for (const [dx, dy, s] of blobs) {
+      ctx.fillStyle = '#2c4a1e';
+      ctx.beginPath(); ctx.arc(x + dx * r, y + dy * r, r * s, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const [dx, dy, s] of blobs) {
+      ctx.fillStyle = '#4c7030';
+      ctx.beginPath(); ctx.arc(x + dx * r - r * 0.2, y + dy * r - r * 0.25, r * s * 0.55, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  drawTufts(ctx, cx, cy, x, y) {
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 5; k++) {
+      const tx = cx + (hashTile(x + k, y * 2) - 0.5) * 40, ty = cy + (hashTile(x * 2, y + k) - 0.5) * 16;
+      ctx.strokeStyle = k % 2 ? 'rgba(40,62,22,0.9)' : 'rgba(132,150,70,0.8)';
+      ctx.beginPath();
+      ctx.moveTo(tx - 2, ty); ctx.lineTo(tx - 3, ty - 4);
+      ctx.moveTo(tx, ty); ctx.lineTo(tx, ty - 5);
+      ctx.moveTo(tx + 2, ty); ctx.lineTo(tx + 3, ty - 4);
+      ctx.stroke();
+    }
+  }
+
+  drawPebbles(ctx, cx, cy, x, y) {
+    for (let k = 0; k < 4; k++) {
+      const tx = cx + (hashTile(x + k, y + 3) - 0.5) * 36, ty = cy + (hashTile(x + 5, y + k) - 0.5) * 14;
+      const r = 1.5 + hashTile(x, k) * 2;
+      ctx.fillStyle = '#5a564c';
+      ctx.beginPath(); ctx.ellipse(tx, ty, r * 1.3, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#a19b8c';
+      ctx.beginPath(); ctx.ellipse(tx - 0.5, ty - 0.6, r * 0.7, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  drawFlowers(ctx, cx, cy, x, y) {
+    const colors = ['#e8e0a0', '#d88aa8', '#f0f0f0', '#e6b84a'];
+    for (let k = 0; k < 7; k++) {
+      const tx = cx + (hashTile(x + k, y) - 0.5) * 30, ty = cy + (hashTile(x, y + k) - 0.5) * 12;
+      ctx.fillStyle = colors[(x + y + k) % colors.length];
+      ctx.fillRect(tx, ty, 1.5, 1.5);
+    }
+  }
+
+  // Animated glints on visible water
+  drawWater() {
+    const ctx = this.ctx, g = this.g, S = g.map.w;
+    ctx.lineWidth = 1;
+    for (const i of this.waterTiles) {
+      if (!g.explored[i]) continue;
+      const x = i % S, y = (i / S) | 0;
+      const h = hashTile(x, y);
+      const a = Math.sin(this.time * 1.6 + h * 40);
+      if (a < 0.55) continue;
+      const p = this.toScreen(x + 0.3 + h * 0.4, y + 0.6 - h * 0.3);
+      if (!this.onScreen(p, 20)) continue;
+      ctx.strokeStyle = `rgba(200,230,240,${(a - 0.55) * 0.9})`;
+      ctx.beginPath(); ctx.moveTo(p.x - 7, p.y); ctx.lineTo(p.x + 7, p.y); ctx.stroke();
+    }
   }
 
   // ---------- main draw ----------
@@ -139,6 +276,7 @@ export class Renderer {
     const S = g.map.w;
     ctx.drawImage(this.terrain, -S * HALF_W - this.cam.x, -this.cam.y);
 
+    this.drawWater();
     this.drawOre();
     this.drawGroundLayer(input);
 
@@ -192,22 +330,44 @@ export class Renderer {
       const x = i % m.w, y = (i / m.w) | 0;
       const c = this.toScreen(x + 0.5, y + 0.5);
       if (!this.onScreen(c, 40)) continue;
-      const n = Math.min(6, Math.ceil(amt / 110));
+      // ore-stained soil, stronger on rich tiles
+      const f = Math.min(1, amt / 450);
+      ctx.fillStyle = `rgba(150,112,36,${0.16 + 0.2 * f})`;
+      ctx.beginPath(); ctx.ellipse(c.x, c.y, 28, 13, 0, 0, Math.PI * 2); ctx.fill();
+      const n = Math.min(7, Math.ceil(amt / 95));
+      // back-to-front so nearer crystals overlap farther ones
+      const gems = [];
       for (let k = 0; k < n; k++) {
         const ox = (hashTile(x * 7 + k, y) - 0.5) * 0.8, oy = (hashTile(x, y * 7 + k) - 0.5) * 0.8;
-        const p = this.toScreen(x + 0.5 + ox, y + 0.5 + oy);
-        const s = 3 + hashTile(x + k, y + k) * 3;
-        ctx.fillStyle = '#8a6a12';
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y - s * 1.6); ctx.lineTo(p.x + s, p.y); ctx.lineTo(p.x, p.y + s * 0.5); ctx.lineTo(p.x - s, p.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#f0cf4a';
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y - s * 1.6); ctx.lineTo(p.x + s, p.y); ctx.lineTo(p.x, p.y - s * 0.2);
-        ctx.closePath();
-        ctx.fill();
+        gems.push({ ox, oy, s: 2.5 + hashTile(x + k, y + k) * 3.5 * (0.6 + 0.4 * f), k });
       }
+      gems.sort((a, b) => a.ox + a.oy - (b.ox + b.oy));
+      for (const gm of gems) {
+        const p = this.toScreen(x + 0.5 + gm.ox, y + 0.5 + gm.oy);
+        this.oreCrystal(p.x, p.y, gm.s, hashTile(x * 13 + gm.k, y * 11));
+      }
+    }
+  }
+
+  oreCrystal(x, y, s, h) {
+    const ctx = this.ctx;
+    const tip = { x: x + (h - 0.5) * s * 0.6, y: y - s * 2.2 };
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(x + 1.5, y + 0.5, s * 1.1, s * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    // shadowed left facet
+    ctx.fillStyle = '#8c6610';
+    ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(x - s * 0.8, y - s * 0.5); ctx.lineTo(x - s * 0.5, y + s * 0.15); ctx.lineTo(x, y + s * 0.35); ctx.closePath(); ctx.fill();
+    // lit right facet
+    ctx.fillStyle = '#e3b42c';
+    ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(x, y + s * 0.35); ctx.lineTo(x + s * 0.6, y + s * 0.1); ctx.lineTo(x + s * 0.8, y - s * 0.5); ctx.closePath(); ctx.fill();
+    // highlight sliver
+    ctx.fillStyle = '#fff1a8';
+    ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(x + s * 0.15, y - s * 0.2); ctx.lineTo(x + s * 0.35, y - s * 0.4); ctx.closePath(); ctx.fill();
+    // occasional twinkle
+    if (Math.sin(this.time * 2.5 + h * 60) > 0.985) {
+      ctx.strokeStyle = 'rgba(255,255,230,0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(tip.x - 4, tip.y); ctx.lineTo(tip.x + 4, tip.y); ctx.moveTo(tip.x, tip.y - 4); ctx.lineTo(tip.x, tip.y + 4); ctx.stroke();
     }
   }
 
@@ -219,10 +379,19 @@ export class Renderer {
       for (let y = b.ty; y < b.ty + b.h; y++) {
         for (let x = b.tx; x < b.tx + b.w; x++) {
           this.tilePath(x, y);
-          ctx.fillStyle = '#55554f';
+          ctx.fillStyle = (x + y) % 2 ? '#5d5c55' : '#57564f';
           ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
+      // drop shadow cast toward the lower right (light comes from the upper left)
+      const sh = b.def.height * b.buildAnim * 0.9;
+      const a = this.toScreen(b.tx, b.ty), r = this.toScreen(b.tx + b.w, b.ty);
+      const cc = this.toScreen(b.tx + b.w, b.ty + b.h), d = this.toScreen(b.tx, b.ty + b.h);
+      const dx = sh * 0.9, dy = sh * 0.2;
+      this.poly([a, { x: a.x + dx, y: a.y + dy }, { x: r.x + dx, y: r.y + dy }, { x: cc.x + dx, y: cc.y + dy }, cc, d], 'rgba(0,0,0,0.28)');
       if (b.key === 'refinery' || b.def.produces === 'vehicle') {
         const ex = b.tx + Math.floor(b.w / 2), ey = b.ty + b.h;
         if (g.map.isPassable(ex, ey)) {
@@ -289,29 +458,78 @@ export class Renderer {
     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
   }
 
-  // Iso box from world rect (x0,y0)-(x1,y1), from height z0 to z1
-  box(x0, y0, x1, y1, z0, z1, top, left, right) {
+  // Vertical gradient for a wall face: lighter at the top, darker at the base
+  faceGradient(pts, color) {
+    const ys = pts.map((p) => p.y);
+    const g = this.ctx.createLinearGradient(0, Math.min(...ys), 0, Math.max(...ys));
+    g.addColorStop(0, shade(color, 0.12));
+    g.addColorStop(1, shade(color, -0.22));
+    return g;
+  }
+
+  // Iso box from world rect (x0,y0)-(x1,y1), from height z0 to z1.
+  // opts.windows adds a row of windows; small boxes skip the surface detail.
+  box(x0, y0, x1, y1, z0, z1, top, left, right, opts = {}) {
+    const ctx = this.ctx;
     const s = (x, y, z) => this.toScreen(x, y, z);
-    this.poly([s(x0, y1, z0), s(x1, y1, z0), s(x1, y1, z1), s(x0, y1, z1)], left, 'rgba(0,0,0,0.35)');
-    this.poly([s(x1, y1, z0), s(x1, y0, z0), s(x1, y0, z1), s(x1, y1, z1)], right, 'rgba(0,0,0,0.35)');
-    this.poly([s(x0, y0, z1), s(x1, y0, z1), s(x1, y1, z1), s(x0, y1, z1)], top, 'rgba(0,0,0,0.35)');
+    const edge = 'rgba(0,0,0,0.4)';
+    const L = [s(x0, y1, z0), s(x1, y1, z0), s(x1, y1, z1), s(x0, y1, z1)];
+    const R = [s(x1, y1, z0), s(x1, y0, z0), s(x1, y0, z1), s(x1, y1, z1)];
+    const T = [s(x0, y0, z1), s(x1, y0, z1), s(x1, y1, z1), s(x0, y1, z1)];
+    const tall = z1 - z0 >= 10;
+    this.poly(L, tall ? this.faceGradient(L, left) : left, edge);
+    this.poly(R, tall ? this.faceGradient(R, right) : right, edge);
+    this.poly(T, top, edge);
+    if (!tall) return;
+
+    // panel seams
+    ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = x0 + 0.5; x < x1 - 0.1; x += 0.5) { const a = s(x, y1, z0), b = s(x, y1, z1); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+    for (let y = y0 + 0.5; y < y1 - 0.1; y += 0.5) { const a = s(x1, y, z0), b = s(x1, y, z1); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+    ctx.stroke();
+
+    // windows
+    if (opts.windows) {
+      const zA = z0 + (z1 - z0) * 0.45, zB = z0 + (z1 - z0) * 0.68;
+      for (let x = x0 + 0.25; x < x1 - 0.3; x += 0.42) {
+        const lit = hashTile(Math.round(x * 10), Math.round(y1 * 10)) < 0.55;
+        this.poly([s(x, y1, zA), s(x + 0.2, y1, zA), s(x + 0.2, y1, zB), s(x, y1, zB)], lit ? 'rgba(255,214,120,0.85)' : 'rgba(28,38,54,0.9)');
+      }
+      for (let y = y0 + 0.25; y < y1 - 0.3; y += 0.42) {
+        const lit = hashTile(Math.round(x1 * 10), Math.round(y * 10)) < 0.4;
+        this.poly([s(x1, y, zA), s(x1, y + 0.2, zA), s(x1, y + 0.2, zB), s(x1, y, zB)], lit ? 'rgba(255,214,120,0.75)' : 'rgba(40,52,70,0.9)');
+      }
+    }
+
+    // parapet rim on larger roofs
+    if (x1 - x0 > 0.8 && y1 - y0 > 0.8) {
+      const r = 0.12;
+      this.poly([s(x0 + r, y0 + r, z1), s(x1 - r, y0 + r, z1), s(x1 - r, y1 - r, z1), s(x0 + r, y1 - r, z1)], shade(top, -0.12));
+    }
+
+    // lit top edges + dark contact line at the base
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath(); ctx.moveTo(T[3].x, T[3].y); ctx.lineTo(T[2].x, T[2].y); ctx.lineTo(T[1].x, T[1].y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(L[0].x, L[0].y); ctx.lineTo(L[1].x, L[1].y); ctx.lineTo(R[1].x, R[1].y); ctx.stroke();
   }
 
   cylinder(x, y, z, r, h, color, band) {
     const ctx = this.ctx;
     const p = this.toScreen(x, y, z);
     const ry = r * 0.5;
-    ctx.fillStyle = shade(color, -0.3);
+    // horizontal gradient gives the body a rounded look
+    const grad = ctx.createLinearGradient(p.x - r, 0, p.x + r, 0);
+    grad.addColorStop(0, shade(color, -0.45));
+    grad.addColorStop(0.6, shade(color, 0.05));
+    grad.addColorStop(1, shade(color, -0.25));
+    ctx.fillStyle = grad;
     ctx.fillRect(p.x - r, p.y - h, r * 2, h);
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, r, ry, 0, 0, Math.PI);
-    ctx.fill();
-    // lit side
-    ctx.fillStyle = shade(color, -0.1);
-    ctx.fillRect(p.x, p.y - h, r, h);
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, r, ry, 0, 0, Math.PI / 2);
-    ctx.lineTo(p.x, p.y);
     ctx.fill();
     if (band) {
       ctx.fillStyle = band;
@@ -354,7 +572,7 @@ export class Renderer {
 
     switch (b.key) {
       case 'conyard': {
-        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
         this.teamStripe(x0, y0, x1, y1, H, team);
         this.box(x0 + 0.2, y0 + 0.2, x0 + 1.3, y0 + 1.3, H, H + 12 * k, shade(team, -0.1), shade(team, -0.5), shade(team, -0.3));
         // crane
@@ -384,14 +602,14 @@ export class Renderer {
       case 'refinery': {
         this.box(x0, y0 + 1, x1, y1, 0, H * 0.7, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
         this.teamStripe(x0, y0 + 1, x1, y1, H * 0.7, team);
-        this.box(x0, y0, x1 - 1, y0 + 1, 0, H, ROOF, shade(WALL, -0.4), shade(WALL, -0.15));
+        this.box(x0, y0, x1 - 1, y0 + 1, 0, H, ROOF, shade(WALL, -0.4), shade(WALL, -0.15), { windows: true });
         this.cylinder(b.tx + 2.4, b.ty + 0.6, 0, 14, H + 10 * k, '#c9b46a', team);
         // conveyor
         this.box(x0 + 1, y1 - 0.5, x0 + 1.9, y1, 0, 8 * k, '#3a3a36', '#2a2a26', '#333');
         break;
       }
       case 'barracks': {
-        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
         if (b.owner.faction === 'soviet') {
           this.teamStripe(x0, y0, x1, y1, H, team);
           this.cylinder(x1 - 0.45, y0 + 0.45, H, 5, 18 * k, '#5a504a', team);
@@ -426,7 +644,7 @@ export class Renderer {
         break;
       }
       case 'radar': {
-        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
         this.teamStripe(x0, y0, x1, y1, H, team);
         const c = s(b.tx + 1, b.ty + 1, H), d = s(b.tx + 1, b.ty + 1, H + 18 * k);
         ctx.strokeStyle = '#555'; ctx.lineWidth = 3;
@@ -582,51 +800,125 @@ export class Renderer {
     const L = u.def.size, W = L * 0.68;
     // Chrono Miner flickers while charging its teleport
     if (u.hstate === 'chrono') ctx.globalAlpha = 0.3 + Math.random() * 0.5;
-    // treads
-    this.poly(this.quad(u.x, u.y, u.dir, L, W, 2), '#262624', 'rgba(0,0,0,0.6)');
+    this.treads(u, L, W);
     if (u.def.look === 'harvester') {
       this.drawHarvester(u, L, W, team);
       ctx.globalAlpha = 1;
       return;
     }
-    this.poly(this.quad(u.x, u.y, u.dir, L * 0.9, W * 0.85, 7), shade(team, -0.25), 'rgba(0,0,0,0.55)');
-    // front highlight
-    const fx = u.x + Math.cos(u.dir) * L * 0.6, fy = u.y + Math.sin(u.dir) * L * 0.6;
-    this.poly(this.quad(fx, fy, u.dir, L * 0.25, W * 0.8, 8), shade(team, -0.05));
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    const edge = 'rgba(0,0,0,0.6)';
+    // lower hull, upper deck, sloped front glacis
+    this.poly(this.quad(u.x, u.y, u.dir, L * 0.92, W * 0.8, 5), shade(team, -0.5), edge);
+    this.poly(this.quad(u.x - c * L * 0.04, u.y - s * L * 0.04, u.dir, L * 0.8, W * 0.7, 9), shade(team, -0.18), edge);
+    this.poly(this.quad(u.x + c * L * 0.66, u.y + s * L * 0.66, u.dir, L * 0.16, W * 0.68, 8), shade(team, 0.08), edge);
+    // engine grille on the rear deck
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let t = -0.75; t <= -0.45; t += 0.1) {
+      const a = this.toScreen(u.x + c * L * t - s * W * 0.45, u.y + s * L * t + c * W * 0.45, 9);
+      const b = this.toScreen(u.x + c * L * t + s * W * 0.45, u.y + s * L * t - c * W * 0.45, 9);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+
     if (u.def.look === 'prism') {
-      this.crystal(u.x, u.y, 9, 18, u.cooldown <= 0, this.time + u.id);
+      const base = this.toScreen(u.x, u.y, 10);
+      ctx.fillStyle = '#3a3f48';
+      ctx.beginPath(); ctx.ellipse(base.x, base.y, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+      this.crystal(u.x, u.y, 10, 18, u.cooldown <= 0, this.time + u.id);
       return;
     }
-    // turret + barrel(s)
-    if (u.def.barrels === 2) {
-      this.gunBarrel(u, 12, L * 1.3, 3, '#222', 0.09);
-      this.gunBarrel(u, 12, L * 1.3, 3, '#222', -0.09);
-    } else {
-      this.gunBarrel(u, 12, L * 1.35, L > 0.45 ? 4 : 3, '#222');
+
+    // Draw the barrel in front of the turret when it points toward the camera
+    const facing = Math.cos(u.turretDir) + Math.sin(u.turretDir) > 0;
+    const barrels = () => {
+      if (u.def.barrels === 2) {
+        this.cannon(u, 13, L * 1.3, 3, 0.09);
+        this.cannon(u, 13, L * 1.3, 3, -0.09);
+      } else {
+        this.cannon(u, 13, L * 1.35, L > 0.45 ? 4 : 3, 0);
+      }
+    };
+    if (!facing) barrels();
+    this.turret(u, L, team);
+    if (facing) barrels();
+  }
+
+  // Two tracks with segments that roll as the vehicle moves
+  treads(u, L, W) {
+    const ctx = this.ctx;
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    const tw = W * 0.3;
+    for (const side of [-1, 1]) {
+      const cx = u.x - s * W * 0.72 * side, cy = u.y + c * W * 0.72 * side;
+      this.poly(this.quad(cx, cy, u.dir, L, tw, 3), '#1d1d1b', 'rgba(0,0,0,0.75)');
+      ctx.strokeStyle = 'rgba(130,128,118,0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const off = (u.anim * 0.12) % 0.16;
+      for (let t = -L + off; t < L; t += 0.16) {
+        const a = this.toScreen(cx + c * t - s * tw, cy + s * t + c * tw, 3.5);
+        const b = this.toScreen(cx + c * t + s * tw, cy + s * t - c * tw, 3.5);
+        ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
     }
-    const t = this.toScreen(u.x, u.y, 12);
-    const rx = 3 + L * 12;
-    ctx.fillStyle = shade(team, 0.1);
-    ctx.beginPath();
-    ctx.ellipse(t.x, t.y, rx, rx * 0.62, 0, 0, Math.PI * 2);
-    ctx.fill();
+  }
+
+  turret(u, L, team) {
+    const ctx = this.ctx;
+    const base = this.toScreen(u.x, u.y, 10), t = this.toScreen(u.x, u.y, 13);
+    const rx = 3 + L * 12, ry = rx * 0.62;
+    // turret ring + body with a highlight toward the upper left
+    ctx.fillStyle = shade(team, -0.55);
+    ctx.beginPath(); ctx.ellipse(base.x, base.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(t.x - rx, t.y, rx * 2, base.y - t.y);
+    const grad = ctx.createRadialGradient(t.x - rx * 0.35, t.y - ry * 0.4, 1, t.x, t.y, rx * 1.1);
+    grad.addColorStop(0, shade(team, 0.35));
+    grad.addColorStop(1, shade(team, -0.25));
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.ellipse(t.x, t.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    // commander's hatch, behind the gun
+    const h = this.toScreen(u.x - Math.cos(u.turretDir) * L * 0.3, u.y - Math.sin(u.turretDir) * L * 0.3, 14);
+    ctx.fillStyle = shade(team, -0.4);
+    ctx.beginPath(); ctx.ellipse(h.x, h.y, rx * 0.32, ry * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Gun barrel with outline and a muzzle brake at the tip
+  cannon(u, z, len, width, side) {
+    this.gunBarrel(u, z, len, width + 2, 'rgba(0,0,0,0.75)', side);
+    this.gunBarrel(u, z, len, width, '#4a4a44', side);
+    const c = Math.cos(u.turretDir), s = Math.sin(u.turretDir);
+    const tip = { x: u.x + c * (len - 0.08) - s * side, y: u.y + s * (len - 0.08) + c * side, turretDir: u.turretDir };
+    this.gunBarrel(tip, z, 0.1, width + 2, '#222', 0);
   }
 
   drawHarvester(u, L, W, team) {
     const chrono = u.def.chrono;
-    this.poly(this.quad(u.x, u.y, u.dir, L * 0.95, W * 0.9, 9), chrono ? '#b59a52' : '#7d6c4a', 'rgba(0,0,0,0.5)');
-    // cab
-    const cx = u.x + Math.cos(u.dir) * L * 0.55, cy = u.y + Math.sin(u.dir) * L * 0.55;
-    this.poly(this.quad(cx, cy, u.dir, L * 0.35, W * 0.8, 15), shade(team, -0.1), 'rgba(0,0,0,0.5)');
-    // hopper with ore load
-    const hx = u.x - Math.cos(u.dir) * L * 0.3, hy = u.y - Math.sin(u.dir) * L * 0.3;
-    this.poly(this.quad(hx, hy, u.dir, L * 0.5, W * 0.75, 14), '#6b6347', 'rgba(0,0,0,0.5)');
+    const edge = 'rgba(0,0,0,0.55)';
+    const body = chrono ? '#b59a52' : '#7d6c4a';
+    this.poly(this.quad(u.x, u.y, u.dir, L * 0.95, W * 0.82, 5), shade(body, -0.45), edge);
+    this.poly(this.quad(u.x, u.y, u.dir, L * 0.9, W * 0.8, 9), body, edge);
+    // cab with a windshield facing forward
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    const cx = u.x + c * L * 0.55, cy = u.y + s * L * 0.55;
+    this.poly(this.quad(cx, cy, u.dir, L * 0.35, W * 0.78, 16), shade(team, -0.1), edge);
+    this.poly(this.quad(cx + c * L * 0.3, cy + s * L * 0.3, u.dir, L * 0.06, W * 0.6, 16.5), 'rgba(40,60,80,0.9)');
+    // hopper with rim and ore load
+    const hx = u.x - c * L * 0.3, hy = u.y - s * L * 0.3;
+    this.poly(this.quad(hx, hy, u.dir, L * 0.52, W * 0.76, 15), '#4e4836', edge);
+    this.poly(this.quad(hx, hy, u.dir, L * 0.44, W * 0.64, 15), '#2e2a20');
     if (u.cargo > 0) {
       const f = u.cargo / u.def.capacity;
-      this.poly(this.quad(hx, hy, u.dir, L * 0.45 * f + 0.05, W * 0.65, 15), '#e8c547');
+      this.poly(this.quad(hx, hy, u.dir, L * 0.42 * f + 0.04, W * 0.6, 16), '#e3b42c');
+      const p = this.toScreen(hx, hy, 17);
+      this.ctx.fillStyle = 'rgba(255,240,160,0.8)';
+      this.ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
     }
     if (chrono) {
       // blue chrono emitter on the cab roof
@@ -647,38 +939,77 @@ export class Renderer {
     const p = this.toScreen(u.x, u.y);
     const team = u.owner.color;
     const step = u.moving ? Math.sin(u.anim * 3) : 0;
-    // legs
-    ctx.fillStyle = '#2b2b25';
-    ctx.fillRect(p.x - 2.5, p.y - 5 + Math.max(0, step), 2, 5 - Math.max(0, step));
-    ctx.fillRect(p.x + 0.5, p.y - 5 + Math.max(0, -step), 2, 5 - Math.max(0, -step));
     const gear = u.def.gear;
     const bulky = gear === 'tesla';
-    // body (Tesla Troopers wear heavy armor suits)
-    ctx.fillStyle = bulky ? '#4a4f58' : shade(team, -0.15);
-    ctx.fillRect(p.x - (bulky ? 4 : 3), p.y - 11, bulky ? 8 : 6, 7);
-    if (bulky) {
-      ctx.fillStyle = team;
-      ctx.fillRect(p.x - 4, p.y - 8, 8, 1.5);
-      ctx.fillStyle = `rgba(120,200,255,${0.6 + Math.sin(this.time * 6 + u.id) * 0.3})`;
-      ctx.fillRect(p.x - 1.5, p.y - 12, 3, 2);
-    }
-    // head + helmet (Soviets: fur hat)
-    ctx.fillStyle = '#e2b98f';
-    ctx.beginPath(); ctx.arc(p.x, p.y - 13, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = bulky ? '#3a3e46' : u.owner.faction === 'soviet' ? '#4a3b2c' : shade(team, -0.4);
-    ctx.fillRect(p.x - 2.5, p.y - (bulky ? 16 : 15.5), 5, bulky ? 3 : 2);
-    // weapon, in screen-space direction of facing
+    const soviet = u.owner.faction === 'soviet';
+    const outline = 'rgba(0,0,0,0.55)';
+    // facing as a screen-space unit vector
     const c = Math.cos(u.dir), s = Math.sin(u.dir);
     let vx = (c - s) * HALF_W, vy = (c + s) * HALF_H;
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : '#111';
-    ctx.lineWidth = gear === 'rifle' ? 1.5 : 3;
-    const wl = gear === 'tesla' ? 5 : 8;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - 9);
-    ctx.lineTo(p.x + vx * wl, p.y - 9 + vy * wl);
+    const back = vy < 0; // facing away from the camera
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(1.2, 1.2);
+    ctx.lineWidth = 0.8;
+    // legs (boots + trousers), alternating while walking
+    const uniform = soviet ? '#5a5240' : '#4b5a3a';
+    for (const [lx, lift] of [[-2.5, Math.max(0, step)], [0.5, Math.max(0, -step)]]) {
+      ctx.fillStyle = uniform;
+      ctx.fillRect(lx, -6 + lift, 2, 4.5 - lift);
+      ctx.fillStyle = '#1e1c18';
+      ctx.fillRect(lx, -1.5, 2, 1.5);
+    }
+    // backpack (drawn first when facing the camera, so it sits behind)
+    const pack = () => {
+      ctx.fillStyle = gear === 'tesla' ? '#2e333b' : '#3c3a2e';
+      ctx.fillRect(-2.5 - vx * 2, -11, 5, 5);
+      if (gear === 'tesla') {
+        ctx.fillStyle = `rgba(120,200,255,${0.6 + Math.sin(this.time * 6 + u.id) * 0.3})`;
+        ctx.fillRect(-1 - vx * 2, -10, 2, 3);
+      }
+    };
+    if (!back) pack();
+    // torso
+    const tw = bulky ? 8 : 6;
+    ctx.fillStyle = bulky ? '#4a4f58' : shade(team, -0.15);
+    ctx.fillRect(-tw / 2, -12, tw, 7);
+    ctx.strokeStyle = outline;
+    ctx.strokeRect(-tw / 2, -12, tw, 7);
+    ctx.fillStyle = bulky ? team : 'rgba(0,0,0,0.35)';
+    ctx.fillRect(-tw / 2, -7, tw, bulky ? 1.5 : 1); // belt / suit stripe
+    if (back) pack();
+    // head + headgear (Allies: helmet, Soviets: fur hat, Tesla: sealed helmet)
+    ctx.fillStyle = '#e2b98f';
+    ctx.beginPath(); ctx.arc(0, -14, 2.4, 0, Math.PI * 2); ctx.fill();
     ctx.stroke();
+    if (bulky) {
+      ctx.fillStyle = '#3a3e46';
+      ctx.beginPath(); ctx.arc(0, -14.5, 3, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = 'rgba(140,210,255,0.8)';
+      ctx.fillRect(-1.5 + vx, -14.5, 3, 1);
+    } else if (soviet) {
+      ctx.fillStyle = '#4a3b2c';
+      ctx.fillRect(-2.8, -17.2, 5.6, 2.8);
+      ctx.fillStyle = '#d33';
+      ctx.fillRect(-0.5, -16.4, 1, 1);
+    } else {
+      ctx.fillStyle = shade(team, -0.4);
+      ctx.beginPath(); ctx.arc(0, -14.6, 2.9, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(-1.5, -16.8, 1.5, 0.8);
+    }
+    // arm + weapon
+    ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : '#151515';
+    ctx.lineWidth = gear === 'rifle' ? 1.4 : 2.6;
+    const wl = gear === 'tesla' ? 5 : gear === 'rocket' ? 9 : 7.5;
+    const sx = vx * 1.5, sy = -9.5;
+    ctx.beginPath(); ctx.moveTo(sx - vx * 2, sy - vy * 2); ctx.lineTo(sx + vx * wl, sy + vy * wl); ctx.stroke();
+    ctx.fillStyle = bulky ? '#4a4f58' : shade(team, -0.25);
+    ctx.fillRect(sx + vx * 2 - 1, sy + vy * 2 - 1, 2, 2);
+    ctx.restore();
   }
 
   // ---------- projectiles / effects ----------

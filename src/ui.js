@@ -23,6 +23,7 @@ export class UI {
       messages: document.getElementById('messages'),
       sfx: document.getElementById('btn-sfx'),
       voice: document.getElementById('btn-voice'),
+      units: document.getElementById('btn-units'),
     };
     this.buttons = [];
     this.tabButtons = {};
@@ -33,6 +34,7 @@ export class UI {
     this.el.repair.addEventListener('click', () => { this.input.placing = null; this.input.mode = this.input.mode === 'repair' ? null : 'repair'; this.g.sound('click'); });
     this.el.sfx.addEventListener('click', () => this.audio.setSfx(!this.audio.sfxOn));
     this.el.voice.addEventListener('click', () => this.audio.setVoice(!this.audio.voiceOn));
+    this.el.units.addEventListener('click', () => this.audio.setUnitVoice(!this.audio.unitVoiceOn));
     for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => this.g.sound('click'));
   }
 
@@ -143,6 +145,7 @@ export class UI {
 
     this.el.sfx.textContent = `Sound: ${this.audio.sfxOn ? 'On' : 'Off'}`;
     this.el.voice.textContent = `EVA: ${this.audio.voiceOn ? 'On' : 'Off'}`;
+    this.el.units.textContent = `Units: ${this.audio.unitVoiceOn ? 'On' : 'Off'}`;
     this.el.sell.classList.toggle('active', this.input.mode === 'sell');
     this.el.repair.classList.toggle('active', this.input.mode === 'repair');
 

@@ -44,9 +44,42 @@ export function hashTile(x, y) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+// Smooth 2D value noise on a hashed lattice, in [0, 1)
+export function vnoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hashTile(ix, iy), b = hashTile(ix + 1, iy);
+  const c = hashTile(ix, iy + 1), d = hashTile(ix + 1, iy + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+// Fractal sum of value noise octaves
+export function fbm(x, y, octaves = 3) {
+  let sum = 0, amp = 0.5, f = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += vnoise(x * f + i * 17.3, y * f - i * 9.1) * amp;
+    norm += amp;
+    amp *= 0.5;
+    f *= 2;
+  }
+  return sum / norm;
+}
+
+export function smoothstep(a, b, x) {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+// Lighten (amt > 0) or darken (amt < 0) a '#rrggbb' or 'rgb(r,g,b)' color
+export function shade(color, amt) {
+  let r, g, b;
+  if (color[0] === '#') {
+    const n = parseInt(color.slice(1), 16);
+    r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255;
+  } else {
+    [r, g, b] = color.match(/\d+/g).map(Number);
+  }
   if (amt >= 0) {
     r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt;
   } else {

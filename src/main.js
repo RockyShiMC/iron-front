@@ -63,6 +63,7 @@ function frame(now) {
 function playSounds() {
   const w = renderer.viewW, h = renderer.viewH;
   for (const e of game.soundEvents) {
+    if (e.name === 'voice') { audio.unitVoice(e.unit, e.line); continue; }
     if (e.x === undefined) { audio.play(e.name); continue; }
     if (!game.isExplored(e.x, e.y)) continue;
     const s = renderer.toScreen(e.x, e.y);
@@ -78,6 +79,7 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'm') audio.setSfx(!audio.sfxOn);
   if (k === 'v') audio.setVoice(!audio.voiceOn);
+  if (k === 'u') audio.setUnitVoice(!audio.unitVoiceOn);
 });
 
 function showResult(result) {
@@ -92,5 +94,10 @@ function showResult(result) {
 }
 
 for (const btn of document.querySelectorAll('.faction')) {
-  btn.addEventListener('click', () => startGame(btn.dataset.faction));
+  btn.addEventListener('click', () => {
+    audio.unlock(); // inside the click, so the browser allows audio
+    // Painting the map takes about a second; show something meanwhile
+    overlay.querySelector('.panel').innerHTML = '<h1>Deploying…</h1><p class="sub">Generating battlefield</p>';
+    setTimeout(() => startGame(btn.dataset.faction), 30);
+  });
 }

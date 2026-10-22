@@ -1,5 +1,6 @@
-// Procedural sound effects (Web Audio) and EVA announcements (speech synthesis).
-// No audio files: every sound is synthesized from oscillators and filtered noise.
+// Procedural sound effects (Web Audio), EVA announcements and unit voice
+// responses (speech synthesis). No audio files: every sound is synthesized.
+import { VOICES } from './config.js';
 
 // What EVA says for each game notification. Messages not listed stay silent.
 const EVA_LINES = {
@@ -43,10 +44,15 @@ export class AudioSystem {
     this.ctx = null;
     this.sfxOn = loadPref('ironfront.sfx', true);
     this.voiceOn = loadPref('ironfront.voice', true);
+    this.unitVoiceOn = loadPref('ironfront.units', true);
     this.lastPlay = {};
     this.active = 0;
-    this.voice = null;
-    this.speaking = 0;
+    this.voice = null; // EVA
+    this.maleVoice = null; // most unit crews
+    this.evaPending = 0;
+    this.currentKind = null; // 'eva' | 'unit' while something is being said
+    this.lastUnitLine = 0;
+    this.lastLines = {};
   }
 
   // Must be called from a user gesture (browsers block audio until then)
@@ -77,6 +83,58 @@ export class AudioSystem {
     // Prefer a female voice, like EVA
     const prefer = ['Zira', 'Aria', 'Jenny', 'Samantha', 'Google US English', 'Female', 'Hazel', 'Susan'];
     this.voice = voices.find((v) => prefer.some((p) => v.name.includes(p))) || voices[0] || null;
+    const male = ['David', 'Mark', 'Guy', 'Ryan', 'Daniel', 'Alex', 'Fred', 'George', 'Google UK English Male', 'Male'];
+    this.maleVoice = voices.find((v) => male.some((p) => v.name.includes(p))) || this.voice;
+  }
+
+  setUnitVoice(on) {
+    this.unitVoiceOn = on;
+    savePref('ironfront.units', on);
+    if (!on && this.currentKind === 'unit') window.speechSynthesis?.cancel();
+  }
+
+  // One speech queue is shared: EVA outranks unit chatter, and a new unit line
+  // replaces the previous one instead of queueing behind it.
+  speak(text, { voice, pitch = 1, rate = 1, kind, urgent = false }) {
+    const synth = window.speechSynthesis;
+    if (kind === 'unit') {
+      if (synth.speaking && this.currentKind === 'eva') return false;
+      synth.cancel();
+    } else if (urgent || this.currentKind === 'unit') {
+      synth.cancel();
+    } else if (this.evaPending >= 2) {
+      return false; // don't let announcements pile up
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) u.voice = voice;
+    u.pitch = pitch;
+    u.rate = rate;
+    u.volume = 0.9;
+    if (kind === 'eva') this.evaPending++;
+    u.onstart = () => { this.currentKind = kind; };
+    u.onend = u.onerror = () => {
+      if (kind === 'eva') this.evaPending = Math.max(0, this.evaPending - 1);
+      if (this.currentKind === kind) this.currentKind = null;
+    };
+    this.currentKind = kind;
+    synth.speak(u);
+    return true;
+  }
+
+  // A unit acknowledges an order: line is 'select' | 'move' | 'attack'
+  unitVoice(key, line) {
+    const v = VOICES[key];
+    if (!v || !this.unitVoiceOn || !window.speechSynthesis || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastUnitLine < 0.5) return;
+    const lines = v[line] || v.select;
+    // avoid repeating the same line twice in a row
+    let i = Math.floor(Math.random() * lines.length);
+    if (lines.length > 1 && lines[i] === this.lastLines[key]) i = (i + 1) % lines.length;
+    if (this.speak(lines[i], { voice: v.male ? this.maleVoice : this.voice, pitch: v.pitch, rate: v.rate, kind: 'unit' })) {
+      this.lastUnitLine = now;
+      this.lastLines[key] = lines[i];
+    }
   }
 
   setSfx(on) {
@@ -88,25 +146,14 @@ export class AudioSystem {
   setVoice(on) {
     this.voiceOn = on;
     savePref('ironfront.voice', on);
-    if (!on && window.speechSynthesis) window.speechSynthesis.cancel();
+    if (!on && this.currentKind === 'eva') window.speechSynthesis?.cancel();
   }
 
   // ---------- EVA ----------
   announce(text) {
     const line = EVA_LINES[text];
     if (!line || !this.voiceOn || !window.speechSynthesis) return;
-    const synth = window.speechSynthesis;
-    if (URGENT.has(text)) synth.cancel();
-    else if (this.speaking >= 2) return; // don't let announcements pile up
-    this.play('blip');
-    const u = new SpeechSynthesisUtterance(line);
-    if (this.voice) u.voice = this.voice;
-    u.rate = 1.05;
-    u.pitch = 0.85;
-    u.volume = 0.9;
-    this.speaking++;
-    u.onend = u.onerror = () => { this.speaking = Math.max(0, this.speaking - 1); };
-    synth.speak(u);
+    if (this.speak(line, { voice: this.voice, pitch: 0.85, rate: 1.05, kind: 'eva', urgent: URGENT.has(text) })) this.play('blip');
   }
 
   // ---------- SFX ----------

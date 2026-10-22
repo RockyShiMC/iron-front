@@ -89,6 +89,71 @@ export const UNITS = {
 };
 
 // role: what prerequisite / AI build slot the building fills (defaults to its key).
+// Unit voice responses: spoken when selected, moved, or ordered to attack.
+// pitch / rate shape each unit's voice; 'male' prefers a male system voice.
+export const VOICES = {
+  gi: {
+    pitch: 1.05, rate: 1.15, male: true,
+    select: ['GI reporting.', 'Standing by.', 'Ready for action.', 'Yes sir?'],
+    move: ['Moving out.', 'On my way.', 'Double time!', 'Roger that.'],
+    attack: ['Engaging!', 'Open fire!', 'Light them up!', 'Taking the shot.'],
+  },
+  guardianGi: {
+    pitch: 0.9, rate: 1.05, male: true,
+    select: ['Guardian on station.', 'Anti-armor ready.', 'Point me at a tank.'],
+    move: ['Repositioning.', 'Moving to cover.', 'Got it.'],
+    attack: ['Rockets away!', 'Tank spotted, firing!', 'Bring it down!'],
+  },
+  grizzly: {
+    pitch: 0.75, rate: 1.05, male: true,
+    select: ['Grizzly ready.', 'Armor standing by.', 'Tank crew here.'],
+    move: ['Rolling out.', 'Moving into position.', 'Treads turning.'],
+    attack: ['Target acquired!', 'Fire the main gun!', 'Engaging target.'],
+  },
+  prismTank: {
+    pitch: 1.2, rate: 1.0, male: false,
+    select: ['Prism tank charged.', 'Focusing light.', 'Crystal aligned.'],
+    move: ['Adjusting position.', 'Changing angle.', 'Relocating.'],
+    attack: ['Beam locked on!', 'Refracting!', 'Concentrate the light!'],
+  },
+  chronoMiner: {
+    pitch: 1.0, rate: 1.0, male: false,
+    select: ['Chrono miner ready.', 'Ready to harvest.', 'Phase drive online.'],
+    move: ['Proceeding.', 'Coordinates locked.', 'On it.'],
+    attack: ['I am a miner, not a fighter.', 'Unarmed, sir!'],
+  },
+  conscript: {
+    pitch: 1.15, rate: 1.2, male: true,
+    select: ['Conscript reporting!', 'For the Union!', 'Orders, comrade?', 'Ready!'],
+    move: ['Moving!', 'Right away, comrade!', 'Forward!', 'Da!'],
+    attack: ['For the Motherland!', 'Attack!', 'Ura!', 'Fire!'],
+  },
+  teslaTrooper: {
+    pitch: 0.55, rate: 0.9, male: true,
+    select: ['Tesla trooper online.', 'Coils charged.', 'Power at maximum.'],
+    move: ['Advancing.', 'Charging forward.', 'Moving out.'],
+    attack: ['Electrify them!', 'Full voltage!', 'Shock and destroy!'],
+  },
+  rhino: {
+    pitch: 0.6, rate: 1.0, male: true,
+    select: ['Rhino tank ready.', 'Heavy armor here.', 'Awaiting orders, comrade.'],
+    move: ['Advancing.', 'Moving out.', 'Full speed ahead.'],
+    attack: ['Crush them!', 'Fire!', 'Destroy the enemy!'],
+  },
+  apocalypse: {
+    pitch: 0.35, rate: 0.82, male: true,
+    select: ['Apocalypse ready.', 'The end has come.', 'Give me a target.'],
+    move: ['Unstoppable.', 'Nothing will stand in our way.', 'Rolling forward.'],
+    attack: ['Annihilate them!', 'Total destruction!', 'Leave nothing standing!'],
+  },
+  warMiner: {
+    pitch: 0.7, rate: 0.95, male: true,
+    select: ['War miner operational.', 'Ore and bullets, comrade.', 'Ready to dig.'],
+    move: ['Moving to ore.', 'Proceeding.', 'On the way.'],
+    attack: ['Weapons free!', 'Defending the ore!', 'Open fire!'],
+  },
+};
+
 export const BUILDINGS = {
   conyard: {
     name: 'Construction Yard', w: 3, h: 3, hp: 2000, cost: 3000, power: 0, sight: 7,
