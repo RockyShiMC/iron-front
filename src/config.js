@@ -328,6 +328,23 @@ export const RANKS = [
   { name: 'Elite', xp: 3, damage: 1.4, armor: 0.7, reload: 0.8, heal: 0.01 },
 ];
 
+// Game modes: each player's team, player 0 being you. seats: which of the map's
+// bases each player starts on (2 vs 2 puts your ally on the base next to yours).
+export const MODES = {
+  '1v1': { name: '1 vs 1', teams: [0, 1] },
+  '1v2': { name: '1 vs 2', teams: [0, 1, 1] },
+  '2v2': { name: '2 vs 2', teams: [0, 0, 1, 1], seats: [0, 2, 1, 3] },
+  ffa: { name: 'Free for all', teams: [0, 1, 2, 3] },
+};
+
+// Team colors, in the order computer players take them (yours is your side's color)
+export const PLAYER_COLORS = [
+  { color: '#3d82e0', name: 'Blue' },
+  { color: '#d8392b', name: 'Red' },
+  { color: '#e0a030', name: 'Yellow' },
+  { color: '#3fbf5f', name: 'Green' },
+];
+
 // AI toughness. think: seconds between decisions; firstAttack / waveEvery: seconds;
 // income / build: multipliers on harvesting and production speed;
 // trickle: credits per second so the AI never stalls completely.

@@ -14,6 +14,17 @@ Then open http://localhost:8080. You only need Node; there is nothing to install
 
 Pick a side on the start screen; the AI plays the other one.
 
+## Modes
+
+| Mode | Players |
+|---|---|
+| 1 vs 1 | You against one computer |
+| 1 vs 2 | You against two computers on the same team |
+| 2 vs 2 | You and a computer ally against two computers; your ally starts next to you and you share vision |
+| Free for all | Four sides, each on its own |
+
+Random Skirmish grows to 88×88 for 3–4 players. World, China and USA have four bases; Korea only fits 1 vs 1. You lose when all your own forces are gone, and win when only your team is left.
+
 | | Allies | Soviets |
 |---|---|---|
 | Power | Power Plant (+100) | Tesla Reactor (+150) |
@@ -47,6 +58,8 @@ The geographic maps are stylized outlines (coastlines, lakes, mountain ranges, d
 | Hard | Attacks from about 2 minutes and every 75 s, raids your harvesters, harvests 35% more, builds 25% faster, starts with extra credits |
 
 At both levels the AI rebuilds lost structures, keeps all its factories producing, defends its base, uses aircraft and ships, and gets a small credit trickle so it can't stall completely.
+
+It also reads your army: it builds whatever counters what you field (anti-tank infantry against armor, rifles against infantry, anti-air when you go heavy on aircraft, plus AA defenses), pulls nearly-dead attackers back for repairs, and splits bigger waves into a main assault and a flanking group that goes for your economy.
 
 ## What else is in it
 

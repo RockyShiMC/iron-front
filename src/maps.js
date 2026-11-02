@@ -6,7 +6,9 @@
 // k > 1 zooms out so more surroundings fit (diamond corners show beyond bbox).
 // land / water: polygons (water is cut out of land). mountains: rocky areas,
 // density = share of tiles that become impassable rock. deserts / snow: biomes.
-// starts: player bases. ore: [lon, lat, radiusTiles] contested ore fields.
+// starts: player bases (two-player games). starts4: four bases for larger games, the
+// first two facing each other and the 3rd / 4th next to the 1st / 2nd (2 vs 2 teammates).
+// ore: [lon, lat, radiusTiles] contested ore fields.
 
 const EURASIA = [
   [-9, 43], [-9, 37], [-6, 36], [0, 38.5], [3, 42], [4, 43.5], [8, 44], [12, 42], [16, 38], [18, 40],
@@ -75,7 +77,7 @@ const WORLD_ISLANDS = [
 
 export const MAPS = {
   random: {
-    name: 'Random Skirmish', size: 64,
+    name: 'Random Skirmish', size: 64, sizeLarge: 88, maxPlayers: 4,
     desc: 'A freshly generated battlefield with lakes, rocks and ore fields.',
   },
 
@@ -107,6 +109,7 @@ export const MAPS = {
     snowLat: 62,
     snow: [[[-50, 60], [-43, 60], [-35, 66], [-22, 70], [-20, 78], [-30, 83], [-55, 82], [-70, 78], [-58, 75], [-52, 68]]],
     starts: [[8, 49], [112, 34]],
+    starts4: [[8, 49], [112, 34], [24, -8], [95, 62]],
     ore: [[48, 29, 3], [60, 56, 3], [78, 22, 3], [20, 5, 3], [-95, 40, 3], [-55, -12, 3], [134, -25, 3], [100, 60, 3], [35, 48, 3]],
   },
 
@@ -134,6 +137,7 @@ export const MAPS = {
     snowLat: 58,
     snow: [[[78, 36], [90, 36.5], [99, 34], [100, 30], [97, 28.5], [88, 28], [81, 30.5], [77, 34]]],
     starts: [[86.5, 45.2], [117.5, 32.8]],
+    starts4: [[86.5, 45.2], [117.5, 32.8], [102, 30.5], [126.5, 45.5]],
     ore: [[104.5, 30.5, 3], [115, 37.5, 3.5], [111, 41.5, 3], [100, 38.5, 3], [126, 45, 3], [113, 23.5, 3], [96, 41, 2.5]],
   },
 
@@ -226,6 +230,7 @@ export const MAPS = {
     snowLat: 55,
     snow: [],
     starts: [[-120.6, 38.4], [-79.4, 36.2]],
+    starts4: [[-120.6, 38.4], [-79.4, 36.2], [-106, 35.5], [-91, 41]],
     ore: [[-99, 31.5, 3.5], [-102.5, 39.5, 3], [-116, 40.5, 3], [-85, 39.5, 3], [-93, 44, 3], [-108, 44.5, 2.5]],
   },
 };

@@ -245,7 +245,7 @@ export class Input {
     if (this.mode === 'attackmove') {
       this.mode = null;
       if (!units.length) return;
-      if (ent && ent.owner !== human) this.attack(units, ent);
+      if (ent && g.hostile(ent.owner, human)) this.attack(units, ent);
       else {
         g.groupOrder(units, w.x, w.y, 'attackmove', e.shiftKey);
         this.addMarker(w.x, w.y, '#ff6060');
@@ -283,7 +283,7 @@ export class Input {
       return;
     }
 
-    if (ent && !ent.owner.neutral && ent.owner !== human && units.some((u) => g.canHit(u.weapon, ent))) {
+    if (ent && g.hostile(ent.owner, human) && units.some((u) => g.canHit(u.weapon, ent))) {
       this.attack(units, ent);
       return;
     }
@@ -468,7 +468,7 @@ export class Input {
     else if (this.mode === 'repair') cursor = 'help';
     else if (this.mode === 'attackmove' || this.mode === 'forcefire' || this.mode === 'power') cursor = 'crosshair';
     else if (this.mode === 'guard') cursor = 'alias';
-    else if (this.hover && this.hover.owner !== g.human && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
+    else if (this.hover && g.hostile(this.hover.owner, g.human) && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
     else if (this.hover && this.hover.owner === g.human) cursor = 'pointer';
     else if (units.length) cursor = 'move';
     this.canvas.style.cursor = cursor;

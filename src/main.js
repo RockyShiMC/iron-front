@@ -1,5 +1,5 @@
-import { SIDEBAR_W, FACTIONS } from './config.js';
-import { Game } from './game.js';
+import { SIDEBAR_W, FACTIONS, MODES } from './config.js';
+import { Game, mapSupports } from './game.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
@@ -167,7 +167,7 @@ function quitToSetup() {
 // ---------- in-battle menu ----------
 const hasSaves = () => Object.keys(listSaves()).length > 0;
 const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-const battleName = (s) => `${FACTIONS[s.faction].name} · ${MAPS[s.map]?.name ?? s.map} · ${s.difficulty === 'hard' ? 'Hard' : 'Normal'}`;
+const battleName = (s) => `${FACTIONS[s.faction].name} · ${MODES[s.mode || '1v1'].name} · ${MAPS[s.map]?.name ?? s.map} · ${s.difficulty === 'hard' ? 'Hard' : 'Normal'}`;
 
 function openMenu(view = 'main') {
   if (session) session.input.enabled = false;
@@ -298,9 +298,10 @@ menuPanel.addEventListener('input', (e) => {
 });
 
 // ---------- setup screen ----------
-const setup = { faction: 'allied', map: 'random', difficulty: 'normal' };
+const setup = { faction: 'allied', map: 'random', difficulty: 'normal', mode: '1v1' };
 try { Object.assign(setup, JSON.parse(localStorage.getItem('ironfront.setup') || '{}')); } catch { /* no saved setup */ }
 if (!MAPS[setup.map]) setup.map = 'random';
+if (!MODES[setup.mode]) setup.mode = '1v1';
 
 function choose(group, attr, value) {
   for (const b of document.querySelectorAll(group)) b.classList.toggle('selected', b.dataset[attr] === value);
@@ -316,11 +317,24 @@ for (const [id, m] of Object.entries(MAPS)) {
 }
 for (const b of document.querySelectorAll('.faction')) b.addEventListener('click', () => { setup.faction = b.dataset.faction; refreshSetup(); });
 for (const b of document.querySelectorAll('#difficulty button')) b.addEventListener('click', () => { setup.difficulty = b.dataset.difficulty; refreshSetup(); });
+for (const b of document.querySelectorAll('#mode button')) b.addEventListener('click', () => { setup.mode = b.dataset.mode; refreshSetup(); });
 
 const loadBtn = document.getElementById('load');
 function refreshSetup() {
   choose('.faction', 'faction', setup.faction);
   choose('#map-list button', 'map', setup.map);
+  // small maps only have room for two bases
+  if (!mapSupports(setup.map, MODES[setup.mode].teams.length)) setup.mode = '1v1';
+  for (const b of document.querySelectorAll('#mode button')) {
+    b.disabled = !mapSupports(setup.map, MODES[b.dataset.mode].teams.length);
+    b.title = b.disabled ? `${MAPS[setup.map].name} only has room for two bases` : '';
+  }
+  choose('#mode button', 'mode', setup.mode);
+  // maps grow for more players
+  for (const b of document.querySelectorAll('#map-list button')) {
+    const m = MAPS[b.dataset.map], n = MODES[setup.mode].teams.length > 2 && m.sizeLarge ? m.sizeLarge : m.size;
+    b.querySelector('span').textContent = `${n}×${n}`;
+  }
   choose('#difficulty button', 'difficulty', setup.difficulty);
   document.getElementById('map-desc').textContent = MAPS[setup.map].desc;
   loadBtn.hidden = !hasSaves();
@@ -332,7 +346,7 @@ document.getElementById('settings').addEventListener('click', () => openMenu('se
 document.getElementById('start').addEventListener('click', () => {
   audio.unlock(); // inside the click, so the browser allows audio
   try { localStorage.setItem('ironfront.setup', JSON.stringify(setup)); } catch { /* storage unavailable */ }
-  statusPanel.innerHTML = `<h1>Deploying…</h1><p class="sub">${MAPS[setup.map].name} · ${setup.difficulty === 'hard' ? 'Hard' : 'Normal'}</p>`;
+  statusPanel.innerHTML = `<h1>Deploying…</h1><p class="sub">${MODES[setup.mode].name} · ${MAPS[setup.map].name} · ${setup.difficulty === 'hard' ? 'Hard' : 'Normal'}</p>`;
   showOverlay(statusPanel);
   setTimeout(() => startGame({ ...setup }), 30);
 });

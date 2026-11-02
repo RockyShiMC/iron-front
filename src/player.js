@@ -24,6 +24,8 @@ export class Player {
     this.counts = {};
     this.defeated = false;
     this.powers = {}; // support power id -> { charge, announced }
+    this.team = id; // players on the same team don't fight
+    this.seat = id; // which of the map's bases this player starts on
   }
 
   // The civilians: own the map's oil derricks and town until someone takes them
@@ -49,7 +51,7 @@ export class Player {
       if (st.charge >= pw.charge && !st.announced) {
         st.announced = true;
         if (this === g.human) g.notify(`${pw.name} ready`, 'info', 0);
-        else if (pw.superweapon) g.notify('Warning: enemy superweapon ready', 'alert', 0);
+        else if (pw.superweapon && g.hostile(this, g.human)) g.notify('Warning: enemy superweapon ready', 'alert', 0);
       }
     }
   }

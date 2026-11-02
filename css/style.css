@@ -354,3 +354,5 @@ body[data-faction="soviet"] #tabs button.active { background: #5a2a22; border-co
 .slot .meta .empty { color: var(--muted); font-weight: normal; }
 .panel .slot button { margin: 0; padding: 6px 12px; font-size: 12px; letter-spacing: 0; }
 .panel .note { min-height: 1.3em; margin: 8px 0 0; color: var(--accent); }
+#mode button { max-width: 150px; }
+.panel .choice button:disabled { opacity: 0.35; cursor: not-allowed; }

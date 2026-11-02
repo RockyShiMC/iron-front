@@ -156,6 +156,7 @@ export function writeSave(slot, game, renderer) {
     faction: game.setup.faction,
     map: game.setup.map,
     difficulty: game.setup.difficulty,
+    mode: game.setup.mode,
   };
   localStorage.setItem(slotKey(slot), JSON.stringify(data));
   index[slot] = meta;

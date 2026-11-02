@@ -149,7 +149,7 @@ export class UI {
         if (!pw.superweapon || !st || !pl.has(pw.building)) continue;
         const left = Math.max(0, pw.charge - st.charge);
         const t = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : 'READY';
-        html += `<div style="border-color:${pl.color}">${pw.name}${pl === p ? '' : ' (enemy)'} ${t}</div>`;
+        html += `<div style="border-color:${pl.color}">${pw.name}${pl === p ? '' : g.allied(pl, p) ? ' (ally)' : ' (enemy)'} ${t}</div>`;
       }
     }
     if (this.el.timers.innerHTML !== html) this.el.timers.innerHTML = html;
@@ -210,7 +210,8 @@ export class UI {
     let info = '';
     if (sel.length === 1) {
       const e = sel[0];
-      const tag = e.owner.neutral ? ' <span class="muted">(civilian)</span>' : e.owner !== p ? ' <span class="enemy">(enemy)</span>' : '';
+      const tag = e.owner.neutral ? ' <span class="muted">(civilian)</span>'
+        : e.owner === p ? '' : g.allied(e.owner, p) ? ` <span style="color:${e.owner.color}">(ally)</span>` : ' <span class="enemy">(enemy)</span>';
       info = `<b>${e.def.name}</b>${tag}<br>HP ${Math.ceil(e.hp)} / ${e.maxHp}`;
       if (e.rank) info += ` · ${e.rank === 2 ? 'Elite' : 'Veteran'}`;
       if (e.def.harvester) info += `<br>Ore ${Math.floor(e.cargo)} / ${e.def.capacity}`;

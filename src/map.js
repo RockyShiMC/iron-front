@@ -36,11 +36,13 @@ function inPoly(x, y, pts) {
 }
 
 export class GameMap {
-  constructor(mapId = 'random', seed = 1) {
+  // players: how many bases to place (2 to 4)
+  constructor(mapId = 'random', seed = 1, players = 2) {
     const def = MAPS[mapId] || MAPS.random;
     this.id = mapId;
     this.def = def;
-    const size = def.size;
+    this.players = players;
+    const size = players > 2 && def.sizeLarge ? def.sizeLarge : def.size;
     this.w = size;
     this.h = size;
     const n = size * size;
@@ -90,7 +92,8 @@ export class GameMap {
   generate(seed) {
     const rng = mulberry32(seed);
     const size = this.w;
-    this.starts = [{ x: 8, y: 8 }, { x: size - 11, y: size - 11 }];
+    // corners: top-left, bottom-right, top-right, bottom-left
+    this.starts = [{ x: 8, y: 8 }, { x: size - 11, y: size - 11 }, { x: size - 11, y: 8 }, { x: 8, y: size - 11 }].slice(0, this.players);
     const n1 = valueNoise(rng, size, 9);
     const n2 = valueNoise(rng, size, 4);
     const n3 = valueNoise(rng, size, 6);
@@ -113,8 +116,9 @@ export class GameMap {
     // Bridge narrow water between separate pieces of land, then make sure both
     // bases are connected (cutting a land corridor if bridges weren't enough)
     this.addBridges();
-    if (!this.connected(this.starts[0], this.starts[1])) {
-      const a = this.starts[0], b = this.starts[1];
+    for (const b of this.starts.slice(1)) {
+      const a = this.starts[0];
+      if (this.connected(a, b)) continue;
       const steps = Math.ceil(dist(a.x, a.y, b.x, b.y));
       for (let k = 0; k <= steps; k++) {
         const t = k / steps;
@@ -124,14 +128,14 @@ export class GameMap {
 
     // Ore fields: one near each base, two contested ones in the middle
     const c = size / 2;
-    const fields = [
-      { x: this.starts[0].x + 11, y: this.starts[0].y + 1, r: 3.6 },
-      { x: this.starts[0].x + 1, y: this.starts[0].y + 11, r: 3.0 },
-      { x: this.starts[1].x - 9, y: this.starts[1].y + 1, r: 3.6 },
-      { x: this.starts[1].x + 1, y: this.starts[1].y - 9, r: 3.0 },
-      { x: c - 6, y: c + 6, r: 4.2 },
-      { x: c + 6, y: c - 6, r: 4.2 },
-    ];
+    const fields = [];
+    for (const st of this.starts) {
+      // two fields beside each base, toward the middle of the map
+      const sx = Math.sign(c - st.x), sy = Math.sign(c - st.y);
+      fields.push({ x: st.x + 1.5 + sx * 9.5 + (sx < 0 ? -1 : 0), y: st.y + 1, r: 3.6 }, { x: st.x + 1, y: st.y + 1.5 + sy * 9.5 + (sy < 0 ? -1 : 0), r: 3.0 });
+    }
+    fields.push({ x: c - 6, y: c + 6, r: 4.2 }, { x: c + 6, y: c - 6, r: 4.2 });
+    if (this.players > 2) fields.push({ x: c - 6, y: c - 6, r: 3.6 }, { x: c + 6, y: c + 6, r: 3.6 });
     for (const f of fields) {
       this.fill(f.x, f.y, f.r + 1, GRASS);
       this.placeOre(f.x, f.y, f.r, rng);
@@ -184,7 +188,7 @@ export class GameMap {
     }
 
     // Bases: rock cleared in a wide circle, water only right at the base
-    this.starts = def.starts.map(([lon, lat]) => {
+    this.starts = (this.players > 2 && def.starts4 ? def.starts4 : def.starts).slice(0, this.players).map(([lon, lat]) => {
       const p = this.geoToTile(lon, lat);
       const sx = Math.round(p.x) - 1, sy = Math.round(p.y) - 1;
       for (let yy = sy - 7; yy <= sy + 9; yy++) {
@@ -200,7 +204,7 @@ export class GameMap {
     });
 
     this.addBridges();
-    this.connectThroughRock(this.starts[0], this.starts[1]);
+    for (const b of this.starts.slice(1)) this.connectThroughRock(this.starts[0], b);
 
     // Ore: two fields next to each base, plus the map's contested fields
     for (const s of this.starts) {

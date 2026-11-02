@@ -1,4 +1,4 @@
-import { BUILDINGS, FACTIONS, POWERS, UNITS, keyForRole } from './config.js';
+import { BUILDINGS, FACTIONS, POWERS, UNITS, WARHEADS, WEAPONS, keyForRole } from './config.js';
 import { dist } from './util.js';
 
 // Build order by role; each faction maps roles to its own buildings
@@ -42,7 +42,8 @@ export class AI {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.d.think;
-    for (const u of this.attacking) if (u.dead) this.attacking.delete(u);
+    for (const u of this.attacking) if (u.dead || u.inside) this.attacking.delete(u);
+    this.mix = this.enemyMix();
     this.build();
     this.produce();
     this.defend();
@@ -52,14 +53,72 @@ export class AI {
     this.useNavy();
     this.useEngineers();
     this.repairUnits();
+    this.retreat();
     this.usePowers();
+  }
+
+  // ---------- reading the enemy ----------
+  // Share of the enemy's strength (by cost) in each armor class
+  enemyMix() {
+    const g = this.g;
+    const mix = { infantry: 0, vehicle: 0, aircraft: 0, ship: 0, building: 0 };
+    let total = 0;
+    for (const u of g.units) {
+      if (!g.hostile(u.owner, this.p) || u.def.harvester || !u.weapon) continue;
+      mix[u.armor] += u.def.cost;
+      total += u.def.cost;
+    }
+    for (const b of g.buildings) {
+      if (!g.hostile(b.owner, this.p) || b.def.wall) continue;
+      mix.building += b.def.cost * 0.15; // structures matter, but armies matter more
+      total += b.def.cost * 0.15;
+    }
+    if (!total) return { infantry: 0.4, vehicle: 0.4, aircraft: 0, ship: 0, building: 0.2 };
+    for (const k in mix) mix[k] /= total;
+    return mix;
+  }
+
+  // How well a unit's weapon does against the current enemy mix
+  effectiveness(key) {
+    const w = WEAPONS[UNITS[key].weapon];
+    if (!w) return 0;
+    let e = 0;
+    for (const [armor, share] of Object.entries(this.mix)) {
+      if (armor === 'aircraft' ? !w.air : w.ground === false) continue;
+      e += share * (WARHEADS[w.warhead][armor] ?? 1);
+    }
+    return e;
+  }
+
+  // Weighted random choice that favors whatever counters the enemy best
+  counterPick(items) {
+    const g = this.g, p = this.p;
+    const opts = items.filter((k) => p.canBuild(k, g) && !UNITS[k].harvester && !UNITS[k].engineer && !UNITS[k].hero && UNITS[k].weapon);
+    if (!opts.length) return null;
+    const weights = opts.map((k) => (this.effectiveness(k) + 0.1) ** 2);
+    let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < opts.length; i++) if ((r -= weights[i]) <= 0) return opts[i];
+    return opts[opts.length - 1];
+  }
+
+  // Attackers that are nearly dead pull back: vehicles to be fixed, infantry home
+  retreat() {
+    const g = this.g;
+    for (const u of this.attacking) {
+      if (u.hp > u.maxHp * 0.3 || u.isAir) continue;
+      this.attacking.delete(u);
+      if (!u.orderRepair(g)) {
+        const home = this.p.rally || this.conyard();
+        if (home) u.orderMove(g, home.x + Math.random() * 2 - 1, home.y + Math.random() * 2 - 1);
+      }
+    }
   }
 
   // ---------- engineers, repairs, powers ----------
   // Keep one engineer around to grab oil derricks (neutral first, then the enemy's)
   useEngineers() {
     const g = this.g, p = this.p;
-    const derricks = g.buildings.filter((b) => b.def.income && b.owner !== p);
+    const derricks = g.buildings.filter((b) => b.def.income && (b.owner.neutral || g.hostile(b.owner, p)));
     if (!derricks.length || !p.has('barracks')) return;
     const engineers = g.units.filter((u) => u.owner === p && u.def.engineer);
     if (!engineers.length && !p.queuedCount('engineer') && p.credits > 800) p.enqueue('engineer', g);
@@ -130,6 +189,8 @@ export class AI {
     const ok = (k) => k && !this.unplaceable.has(k) && !(BUILDINGS[k].naval && !g.map.hasWater);
     const power = keyForRole(p.faction, 'power');
     if (p.lowPower() && p.canBuild(power, g)) return power;
+    const aa = keyForRole(p.faction, 'aaDefense');
+    if (this.mix && this.mix.aircraft > 0.15 && (p.counts.aaDefense || 0) < 2 + Math.round(this.mix.aircraft * 6) && p.canBuild(aa, g)) return aa;
     const tally = {};
     for (const role of BUILD_ORDER) {
       const key = keyForRole(p.faction, role);
@@ -163,27 +224,21 @@ export class AI {
     }
     const reserve = needHarv ? 900 : 0;
     const spare = p.credits - reserve;
-    const pick = (items) => {
-      const [basic, adv] = items;
-      return adv && p.canBuild(adv, g) && Math.random() < 0.4 ? adv : basic;
-    };
+    const pick = (items) => this.counterPick(items);
     // Aim for a mixed force: infantry can't outnumber vehicles by too much, and
     // air / navy get a fixed share once their factories exist
     const count = (cat) => mine.filter((u) => u.def.category === cat && !u.def.harvester).length;
     const inf = count('infantry'), veh = count('vehicle'), air = count('air'), sea = count('naval');
     const ground = inf + veh;
     const share = this.d.airNavyShare;
-    if (p.has('airfield') && q.air.length < 1 && air < 2 + ground * share * 0.5 && spare > 200) {
-      const items = this.tab('air');
-      p.enqueue(items[Math.floor(Math.random() * items.length)], g);
-    }
-    if (p.has('shipyard') && q.naval.length < 1 && sea < 1 + ground * share * 0.4 && spare > 200) p.enqueue(pick(this.tab('naval')), g);
-    const vehicles = this.tab('vehicle').filter((k) => k !== harvKey);
-    if (p.has('factory') && q.vehicle.filter((i) => i.key !== harvKey).length < 2 && spare > 500) p.enqueue(pick(vehicles), g);
+    const enq = (key) => key && p.enqueue(key, g);
+    if (p.has('airfield') && q.air.length < 1 && air < 2 + ground * share * 0.5 && spare > 200) enq(pick(this.tab('air')));
+    if (p.has('shipyard') && q.naval.length < 1 && sea < 1 + ground * share * 0.4 && spare > 200) enq(pick(this.tab('naval')));
+    if (p.has('factory') && q.vehicle.filter((i) => i.key !== harvKey).length < 2 && spare > 500) enq(pick(this.tab('vehicle')));
     const hero = this.tab('infantry').find((k) => UNITS[k].hero);
     if (hero && p.credits > 3000 && p.canBuild(hero, g)) p.enqueue(hero, g);
     const infantryCap = p.has('factory') ? veh * 1.5 + 5 : 12;
-    if (p.has('barracks') && q.infantry.length < 2 && inf < infantryCap && spare > 150) p.enqueue(pick(this.tab('infantry')), g);
+    if (p.has('barracks') && q.infantry.length < 2 && inf < infantryCap && spare > 150) enq(pick(this.tab('infantry')));
   }
 
   // Ground units and gunships that fight in attack waves
@@ -206,14 +261,24 @@ export class AI {
   // ---------- attack waves ----------
   attack() {
     const g = this.g, d = this.d;
-    const ready = this.army().filter((u) => !this.attacking.has(u) && (u.order.type === 'idle' || (u.order.type === 'move' && !u.order.auto)));
+    const ready = this.army().filter((u) => !this.attacking.has(u) && u.hp > u.maxHp * 0.5 && !u.def.engineer &&
+      (u.order.type === 'idle' || (u.order.type === 'move' && !u.order.auto)));
     const sinceWave = g.time - this.lastWave;
     const due = g.time > d.firstAttack && (ready.length >= this.waveSize || (sinceWave > d.waveEvery && ready.length >= 3));
     if (due) {
       const t = this.pickTarget(this.conyard() || this.p.rally);
       if (t) {
         for (const u of ready) { this.attacking.add(u); u.aiRetarget = g.time + 6; }
-        g.groupOrder(ready, t.x, t.y, 'attackmove');
+        // Big waves split: the fastest 40% hit a second target from another side
+        const flankAt = ready.length >= 6 ? this.flankTarget(t) : null;
+        if (flankAt) {
+          const bySpeed = [...ready].sort((a, b) => b.def.speed - a.def.speed);
+          const flank = bySpeed.slice(0, Math.round(ready.length * 0.4));
+          g.groupOrder(flank, flankAt.x, flankAt.y, 'attackmove');
+          g.groupOrder(ready.filter((u) => !flank.includes(u)), t.x, t.y, 'attackmove');
+        } else {
+          g.groupOrder(ready, t.x, t.y, 'attackmove');
+        }
         this.lastWave = g.time;
         this.waveCount++;
         this.waveSize = Math.min(d.waveMin + this.waveCount * 2, d.maxWave);
@@ -226,6 +291,17 @@ export class AI {
       const t = this.pickTarget(u);
       if (t) u.orderAttackMove(g, t.x + Math.random() - 0.5, t.y + Math.random() - 0.5);
     }
+  }
+
+  // A second target well away from the main one: the economy if possible
+  flankTarget(main) {
+    const g = this.g, from = this.conyard() || this.p.rally;
+    if (!from) return null;
+    const far = (e) => dist(e.x, e.y, main.x, main.y) > 10;
+    const t = this.nearestEnemy(from, (e) => e.isBuilding && far(e) && (e.key === 'refinery' || BUILDINGS[e.key].role === 'power' || e.def.income))
+      || this.nearestEnemy(from, (e) => e.isUnit && e.def.harvester && far(e))
+      || this.nearestEnemy(from, (e) => e.isBuilding && !e.def.wall && far(e));
+    return t && { x: t.x, y: t.y + (t.h || 0) / 2 };
   }
 
   // Hard AI: small fast groups go after your harvesters

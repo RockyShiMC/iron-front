@@ -1,5 +1,6 @@
-import { BUILDINGS, UNITS, WARHEADS, FACTIONS, DIFFICULTY, RANKS, POWERS } from './config.js';
+import { BUILDINGS, UNITS, WARHEADS, FACTIONS, DIFFICULTY, RANKS, POWERS, MODES, PLAYER_COLORS } from './config.js';
 import { GameMap, WATER, BRIDGE } from './map.js';
+import { MAPS } from './maps.js';
 import { Pathfinder } from './pathfinding.js';
 import { Unit, Building } from './entities.js';
 import { Player, categoryOf } from './player.js';
@@ -14,20 +15,38 @@ const FORMATION = [];
 for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) FORMATION.push({ x: x * 0.85, y: y * 0.85 });
 FORMATION.sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
 
+// How many players a map has bases for
+export function mapSupports(mapId, players) {
+  const def = MAPS[mapId];
+  if (!def) return false;
+  return players <= (def.maxPlayers || (def.starts4 ? 4 : def.starts.length));
+}
+
 export class Game {
-  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal' } = {}) {
+  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal', mode = '1v1' } = {}) {
     // Kept so a battle can be restarted on the same map, and so saves can rebuild the terrain
     this.seed = seed;
-    this.setup = { faction, map, difficulty };
-    this.map = new GameMap(map, seed);
+    if (!MODES[mode] || (mode !== '1v1' && !mapSupports(map, MODES[mode].teams.length))) mode = '1v1';
+    this.setup = { faction, map, difficulty, mode };
+    const teams = MODES[mode].teams;
+    this.map = new GameMap(map, seed, teams.length);
     this.pathfinder = new Pathfinder(this.map);
-    this.players = [
-      new Player(0, faction, false),
-      new Player(1, faction === 'allied' ? 'soviet' : 'allied', true),
-      Player.neutral(2),
-    ];
+    // You, then the computer players (alternating sides), then the civilians
+    const other = faction === 'allied' ? 'soviet' : 'allied';
+    const colors = PLAYER_COLORS.filter((c) => c.color !== FACTIONS[faction].color);
+    this.players = teams.map((team, i) => {
+      const p = new Player(i, i === 0 ? faction : i % 2 ? other : faction, i > 0);
+      p.team = team;
+      p.seat = MODES[mode].seats?.[i] ?? i;
+      if (i > 0) {
+        p.color = colors[i - 1].color;
+        p.name = teams.length > 2 ? `${colors[i - 1].name} ${p.name}` : p.name;
+      }
+      return p;
+    });
+    this.players.push(Player.neutral(teams.length));
     this.human = this.players[0];
-    this.neutral = this.players[2];
+    this.neutral = this.players[teams.length];
     this.difficulty = DIFFICULTY[difficulty] || DIFFICULTY.normal;
     for (const p of this.players) {
       if (!p.isAI) continue;
@@ -56,7 +75,7 @@ export class Game {
 
     this.players.forEach((p, i) => {
       if (p.neutral) return;
-      const s = this.map.starts[i];
+      const s = this.map.starts[p.seat];
       this.addBuilding(p, 'conyard', s.x, s.y, true);
       const ex = s.x + 1.5, ey = s.y + 4.5;
       const { tank, infantry } = FACTIONS[p.faction].start;
@@ -74,13 +93,23 @@ export class Game {
   placeNeutrals() {
     const m = this.map, S = m.w;
     const rng = mulberry32(this.seed ^ 0x5eed);
-    const [a, b] = this.map.starts.map((s) => ({ x: s.x + 1.5, y: s.y + 1.5 }));
+    const bases = this.map.starts.map((s) => ({ x: s.x + 1.5, y: s.y + 1.5 }));
+    const [a, b] = bases;
     const len = dist(a.x, a.y, b.x, b.y) || 1;
     const px = -(b.y - a.y) / len, py = (b.x - a.x) / len; // perpendicular to the line between bases
     const at = (t, off) => ({ x: a.x + (b.x - a.x) * t + px * off, y: a.y + (b.y - a.y) * t + py * off });
     const spread = Math.min(S * 0.2, len * 0.35);
-    const derricks = [at(0.5, spread), at(0.5, -spread)];
+    let derricks = [at(0.5, spread), at(0.5, -spread)];
     if (S >= 100) derricks.push(at(0.3, spread * 0.6), at(0.7, -spread * 0.6));
+    if (bases.length > 2) {
+      // one between each pair of neighbouring bases, pulled toward the middle
+      const cx = bases.reduce((s2, q) => s2 + q.x, 0) / bases.length, cy = bases.reduce((s2, q) => s2 + q.y, 0) / bases.length;
+      const ring = [...bases].sort((p, q) => Math.atan2(p.y - cy, p.x - cx) - Math.atan2(q.y - cy, q.x - cx));
+      derricks = ring.map((p, k) => {
+        const q = ring[(k + 1) % ring.length];
+        return { x: ((p.x + q.x) / 2) * 0.7 + cx * 0.3, y: ((p.y + q.y) / 2) * 0.7 + cy * 0.3 };
+      });
+    }
     for (const p of derricks) {
       const spot = this.findOpenSpot(p.x, p.y, 2, 2, 14);
       if (spot) this.addBuilding(this.neutral, 'oilDerrick', spot.x, spot.y, true);
@@ -118,9 +147,14 @@ export class Game {
     return null;
   }
 
-  // Do a and b fight each other on their own? (civilians are left alone)
+  // Do a and b fight each other on their own? (civilians are left alone, teammates too)
   hostile(a, b) {
-    return a !== b && !a.neutral && !b.neutral;
+    return a !== b && !a.neutral && !b.neutral && a.team !== b.team;
+  }
+
+  // Same player or teammates
+  allied(a, b) {
+    return a === b || (!a.neutral && !b.neutral && a.team === b.team);
   }
 
   // ---------- entity management ----------
@@ -406,7 +440,7 @@ export class Game {
     const owner = attacker.owner;
     for (const list of [this.units, this.buildings]) {
       for (const e of list) {
-        if (e === target || e.dead || e.owner === owner) continue;
+        if (e === target || e.dead || this.allied(e.owner, owner)) continue;
         if (distToEntity(x, y, e) <= w.splash) this.damage(e, w.damage * 0.5, w.warhead, attacker);
       }
     }
@@ -420,14 +454,14 @@ export class Game {
     target.lastAttacked = this.time;
     if (target.owner === this.human && target.isBuilding) this.notify('Our base is under attack!', 'alert', 20);
     if (target.owner === this.human && target.def.harvester) this.notify('Ore miner under attack', 'alert', 20);
-    if (target.isUnit && attacker && attacker.owner !== target.owner) target.retaliate(this, attacker);
+    if (target.isUnit && attacker?.owner && this.hostile(attacker.owner, target.owner)) target.retaliate(this, attacker);
     if (target.hp <= 0) this.kill(target, attacker);
   }
 
   kill(e, killer = null) {
     e.dead = true;
     e.hp = 0;
-    if (killer && killer.isUnit && !killer.dead && killer.owner !== e.owner) this.gainXp(killer, e.def.cost);
+    if (killer && killer.isUnit && !killer.dead && !this.allied(killer.owner, e.owner)) this.gainXp(killer, e.def.cost);
     if (e.isBuilding) {
       if (e.garrison?.length) this.evacuate(e, 0.5);
       this.removeBuilding(e);
@@ -652,7 +686,7 @@ export class Game {
       return true;
     }
     this.strikes.push({ power: id, owner: player, x, y, t: pw.delay || 0 });
-    if (pw.superweapon) {
+    if (pw.superweapon && (player === this.human || this.hostile(player, this.human))) {
       this.notify(player === this.human ? `${pw.name} launched` : 'Warning: enemy superweapon launched', 'alert', 0);
       this.sound('chrono');
     }
@@ -807,8 +841,9 @@ export class Game {
         }
       }
     };
-    for (const u of this.units) if (u.owner === this.human) reveal(u.x, u.y, u.def.sight);
-    for (const b of this.buildings) if (b.owner === this.human) reveal(b.x, b.y, b.def.sight + b.w / 2);
+    // teammates share what they see
+    for (const u of this.units) if (this.allied(u.owner, this.human)) reveal(u.x, u.y, u.def.sight);
+    for (const b of this.buildings) if (this.allied(b.owner, this.human)) reveal(b.x, b.y, b.def.sight + b.w / 2);
     if (changed) this.visStamp++;
   }
 
@@ -821,10 +856,14 @@ export class Game {
     for (const p of this.players) {
       if (p.defeated || p.neutral) continue;
       const alive = this.buildings.some((b) => b.owner === p && !b.def.wall) || this.units.some((u) => u.owner === p && !u.def.harvester);
-      if (!alive) p.defeated = true;
+      if (alive) continue;
+      p.defeated = true;
+      if (p !== this.human) this.notify(`${p.name} ${this.allied(p, this.human) ? '(ally)' : ''} defeated`.replace('  ', ' '), 'info', 0);
     }
+    // you lose when you're wiped out, and win when only your team is left
+    const teams = new Set(this.players.filter((p) => !p.neutral && !p.defeated).map((p) => p.team));
     if (this.human.defeated) this.result = 'lose';
-    else if (this.players.every((p) => p === this.human || p.defeated || p.neutral)) this.result = 'win';
+    else if (teams.size === 1) this.result = 'win';
     if (this.result) this.notify(this.result === 'win' ? 'Mission accomplished' : 'Mission failed', 'alert', 0);
   }
 }
