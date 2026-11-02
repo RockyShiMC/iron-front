@@ -1,5 +1,6 @@
 import { mulberry32, dist, vnoise } from './util.js';
 import { MAPS } from './maps.js';
+import { decodeRLE, THEMES, ORE_LEVELS } from './customMaps.js';
 
 export const GRASS = 0;
 export const WATER = 1;
@@ -55,7 +56,8 @@ export class GameMap {
     this.buildingAt = new Array(n).fill(null);
     this.bridges = []; // { tiles, hp, maxHp, dead, x, y }
     this.bridgeAt = new Int16Array(n).fill(-1);
-    if (def.bbox) this.generateGeo(def, seed);
+    if (def.custom) this.loadCustom(def.custom, seed);
+    else if (def.bbox) this.generateGeo(def, seed);
     else this.generate(seed);
     for (let i = 0; i < this.ore.length; i++) if (this.oreMax[i] > 0) this.oreTiles.push(i);
     this.hasWater = this.terrain.some((t) => t === WATER);
@@ -139,6 +141,56 @@ export class GameMap {
     for (const f of fields) {
       this.fill(f.x, f.y, f.r + 1, GRASS);
       this.placeOre(f.x, f.y, f.r, rng);
+    }
+  }
+
+  // ---------- maps made in the editor ----------
+  loadCustom(data, seed) {
+    const rng = mulberry32(seed);
+    const n = this.w * this.h;
+    this.terrain.set(decodeRLE(data.terrain, n));
+    const levels = decodeRLE(data.ore, n);
+    const biome = THEMES[data.theme] || 0;
+    for (let i = 0; i < n; i++) {
+      this.variant[i] = rng();
+      if (this.terrain[i] !== WATER) this.biome[i] = biome;
+      if (levels[i] && this.terrain[i] === GRASS) {
+        const amt = ORE_LEVELS[levels[i]] + Math.round(rng() * 80);
+        this.ore[i] = amt;
+        this.oreMax[i] = amt;
+      }
+    }
+    this.starts = data.starts.slice(0, this.players).map(([x, y]) => ({ x, y }));
+    // the ground under each base is always clear
+    for (const s of this.starts) {
+      for (let y = s.y - 2; y <= s.y + 5; y++) {
+        for (let x = s.x - 2; x <= s.x + 5; x++) {
+          if (!this.inBounds(x, y) || dist(x + 0.5, y + 0.5, s.x + 1.5, s.y + 1.5) > 3.6) continue;
+          const i = this.idx(x, y);
+          if (this.terrain[i] !== BRIDGE) this.terrain[i] = GRASS;
+          this.ore[i] = this.oreMax[i] = 0;
+        }
+      }
+    }
+    // painted bridge tiles that touch each other form one bridge
+    const S = this.w;
+    for (let i = 0; i < n; i++) {
+      if (this.terrain[i] !== BRIDGE || this.bridgeAt[i] >= 0) continue;
+      const id = this.bridges.length, tiles = [i];
+      this.bridgeAt[i] = id;
+      for (let k = 0; k < tiles.length; k++) {
+        const x = tiles[k] % S, y = (tiles[k] / S) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy, j = ny * S + nx;
+          if (this.inBounds(nx, ny) && this.terrain[j] === BRIDGE && this.bridgeAt[j] < 0) { this.bridgeAt[j] = id; tiles.push(j); }
+        }
+      }
+      const xs = tiles.map((t) => t % S), ys = tiles.map((t) => (t / S) | 0);
+      const wide = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+      this.bridges.push({
+        tiles, hp: 1500, maxHp: 1500, dead: false, dx: wide ? 1 : 0, dy: wide ? 0 : 1,
+        x: xs.reduce((a, b) => a + b, 0) / tiles.length + 0.5, y: ys.reduce((a, b) => a + b, 0) / tiles.length + 0.5,
+      });
     }
   }
 

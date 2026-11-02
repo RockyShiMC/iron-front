@@ -106,6 +106,16 @@ export class Game {
   // Oil derricks and a few civilian buildings in the contested middle of the map
   placeNeutrals() {
     const m = this.map, S = m.w;
+    if (m.def.custom) {
+      // the map's author placed them
+      for (const nb of m.def.custom.neutrals || []) {
+        const def = BUILDINGS[nb.key];
+        let ok = !!def;
+        for (let y = nb.y; ok && y < nb.y + def.h; y++) for (let x = nb.x; ok && x < nb.x + def.w; x++) ok = m.isBuildable(x, y);
+        if (ok) this.addBuilding(this.neutral, nb.key, nb.x, nb.y, true);
+      }
+      return;
+    }
     const rng = mulberry32(this.seed ^ 0x5eed);
     const bases = this.map.starts.map((s) => ({ x: s.x + 1.5, y: s.y + 1.5 }));
     const [a, b] = bases;

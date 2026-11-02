@@ -8,6 +8,8 @@ import { MAPS } from './maps.js';
 import { SLOTS, listSaves, writeSave, readSave, deleteSave } from './save.js';
 import { settings, saveSettings } from './settings.js';
 import { MISSIONS, missionById, missionUnlocked, markMissionDone, campaignProgress } from './missions.js';
+import { registerCustomMaps } from './customMaps.js';
+import { Editor } from './editor.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -336,6 +338,7 @@ menuPanel.addEventListener('input', (e) => {
 });
 
 // ---------- setup screen ----------
+registerCustomMaps();
 const setup = { faction: 'allied', map: 'random', difficulty: 'normal', mode: '1v1' };
 try { Object.assign(setup, JSON.parse(localStorage.getItem('ironfront.setup') || '{}')); } catch { /* no saved setup */ }
 if (!MAPS[setup.map]) setup.map = 'random';
@@ -346,19 +349,25 @@ function choose(group, attr, value) {
 }
 
 const mapList = document.getElementById('map-list');
-for (const [id, m] of Object.entries(MAPS)) {
-  const b = document.createElement('button');
-  b.dataset.map = id;
-  b.innerHTML = `<b>${m.name}</b><span>${m.size}×${m.size}</span>`;
-  b.addEventListener('click', () => { setup.map = id; refreshSetup(); });
-  mapList.appendChild(b);
+function renderMapList() {
+  mapList.innerHTML = '';
+  for (const [id, m] of Object.entries(MAPS)) {
+    const b = document.createElement('button');
+    b.dataset.map = id;
+    b.innerHTML = `<b>${m.name}</b><span>${m.size}×${m.size}</span>`;
+    if (m.custom) b.classList.add('custom');
+    b.addEventListener('click', () => { setup.map = id; refreshSetup(); });
+    mapList.appendChild(b);
+  }
 }
+renderMapList();
 for (const b of document.querySelectorAll('.faction')) b.addEventListener('click', () => { setup.faction = b.dataset.faction; refreshSetup(); });
 for (const b of document.querySelectorAll('#difficulty button')) b.addEventListener('click', () => { setup.difficulty = b.dataset.difficulty; refreshSetup(); });
 for (const b of document.querySelectorAll('#mode button')) b.addEventListener('click', () => { setup.mode = b.dataset.mode; refreshSetup(); });
 
 const loadBtn = document.getElementById('load');
 function refreshSetup() {
+  if (!MAPS[setup.map]) setup.map = 'random';
   choose('.faction', 'faction', setup.faction);
   choose('#map-list button', 'map', setup.map);
   // small maps only have room for two bases
@@ -382,6 +391,20 @@ refreshSetup();
 loadBtn.addEventListener('click', () => { audio.unlock(); openMenu('load'); });
 document.getElementById('settings').addEventListener('click', () => openMenu('settings'));
 document.getElementById('campaign').addEventListener('click', () => { audio.unlock(); openMenu('campaign'); });
+
+// ---------- map editor ----------
+const editor = new Editor({
+  onClose: () => { refreshSetup(); showOverlay(setupPanel); },
+  onSaved: () => { renderMapList(); refreshSetup(); },
+  onPlay: (mapId) => {
+    audio.unlock();
+    Object.assign(setup, { map: mapId, mode: '1v1' });
+    refreshSetup();
+    startGame({ ...setup });
+  },
+});
+document.getElementById('open-editor').addEventListener('click', () => { overlay.style.display = 'none'; editor.open(); });
+window.editor = editor; // for debugging in the console
 document.getElementById('start').addEventListener('click', () => {
   audio.unlock(); // inside the click, so the browser allows audio
   try { localStorage.setItem('ironfront.setup', JSON.stringify(setup)); } catch { /* storage unavailable */ }

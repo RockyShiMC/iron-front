@@ -38,6 +38,44 @@
 
   <div id="menu"><div class="panel menu"></div></div>
 
+  <div id="editor" hidden>
+    <canvas id="editor-canvas"></canvas>
+    <aside id="editor-panel">
+      <h2>Map editor</h2>
+      <label class="ed-field">Name <input id="ed-name" maxlength="40" placeholder="My map"></label>
+      <div class="ed-row">
+        <label class="ed-field">Size <select id="ed-size"><option>48</option><option selected>64</option><option>88</option><option>112</option></select></label>
+        <label class="ed-field">Look <select id="ed-theme"><option value="temperate">Grassland</option><option value="desert">Desert</option><option value="snow">Snow</option></select></label>
+      </div>
+      <div class="ed-row"><button data-ed="new">New blank</button><button data-ed="random">New random</button></div>
+
+      <h3>Paint</h3>
+      <div class="ed-tools">
+        <button data-tool="grass">Grass</button><button data-tool="water">Water</button>
+        <button data-tool="rock">Rock</button><button data-tool="bridge">Bridge</button>
+        <button data-tool="ore">Ore</button><button data-tool="unore">Clear ore</button>
+      </div>
+      <div class="ed-row ed-brush">Brush
+        <button data-brush="1">1</button><button data-brush="2">2</button><button data-brush="3">3</button><button data-brush="5">5</button>
+      </div>
+      <h3>Place</h3>
+      <div class="ed-tools">
+        <button data-tool="start">Base</button><button data-tool="derrick">Oil derrick</button>
+        <button data-tool="civ">Civilian bldg</button><button data-tool="erase">Remove</button>
+      </div>
+      <p class="ed-hint">Click a base or building again to remove it. 2 to 4 bases; the number of bases decides which modes the map can host.</p>
+
+      <h3>Saved maps</h3>
+      <select id="ed-maps"></select>
+      <div class="ed-row"><button data-ed="load">Load</button><button data-ed="delete">Delete</button></div>
+      <div class="ed-row"><button data-ed="save" class="primary">Save</button><button data-ed="play" class="primary">Save &amp; play</button></div>
+      <div class="ed-row"><button data-ed="export">Export file</button><button data-ed="import">Import file</button></div>
+      <input type="file" id="ed-file" accept=".json,application/json" hidden>
+      <p id="ed-note"></p>
+      <button data-ed="close" class="ed-close">Back to menu</button>
+    </aside>
+  </div>
+
   <div id="overlay">
     <div class="panel status" id="status-panel" hidden></div>
     <div class="panel setup" id="setup-panel">
@@ -82,6 +120,7 @@
       <div class="setup-extra">
         <button id="load" class="secondary" hidden>Load saved battle</button>
         <button id="campaign">Campaign</button>
+        <button id="open-editor" class="secondary">Map editor</button>
         <button id="settings" class="secondary">Settings</button>
       </div>
 

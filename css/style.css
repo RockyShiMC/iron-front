@@ -381,3 +381,33 @@ body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border
 .briefing p { margin: 0 0 8px; }
 .briefing ul { margin: 6px 0 0 18px; padding: 0; color: var(--text); }
 .briefing .meta { color: var(--muted); font-size: 12px; text-align: center; }
+
+/* Map editor */
+#editor { position: absolute; inset: 0; z-index: 15; display: flex; background: #0b0e10; }
+#editor[hidden] { display: none; }
+#editor-canvas { flex: 1; min-width: 0; height: 100%; cursor: crosshair; }
+#editor-panel {
+  width: 250px; padding: 10px 12px; overflow-y: auto;
+  background: linear-gradient(180deg, #1b2125, #101315); border-left: 2px solid var(--edge);
+  display: flex; flex-direction: column; gap: 6px;
+}
+#editor-panel h2 { margin: 0 0 4px; font: bold 22px Impact, "Arial Black", sans-serif; letter-spacing: 2px; color: #e24a2e; text-transform: uppercase; }
+#editor-panel h3 { margin: 8px 0 0; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+#editor-panel button {
+  flex: 1; background: var(--panel-2); color: var(--text); border: 1px solid var(--edge);
+  padding: 5px 4px; font-size: 12px; cursor: pointer;
+}
+#editor-panel button:hover { border-color: #8fb0c0; }
+#editor-panel button.on { background: #34434c; border-color: var(--accent); color: #fff; }
+#editor-panel button.primary { background: #8c2a1b; border-color: #d0553e; color: #fff; }
+#editor-panel input, #editor-panel select { width: 100%; background: #0b0d0e; color: var(--text); border: 1px solid var(--edge); padding: 4px; }
+.ed-row { display: flex; gap: 4px; align-items: center; }
+.ed-field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.ed-row .ed-field { flex: 1; }
+.ed-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.ed-brush { font-size: 11px; color: var(--muted); }
+.ed-hint { margin: 0; font-size: 11px; color: var(--muted); }
+#ed-note { margin: 4px 0 0; min-height: 2.6em; font-size: 12px; color: var(--good); }
+#ed-note.bad { color: var(--warn); }
+#editor-panel .ed-close { flex: none; margin-top: auto; }
+.panel .maps button.custom { border-style: dashed; }

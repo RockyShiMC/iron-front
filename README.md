@@ -37,6 +37,16 @@ Four short missions, each unlocking the next (progress is kept in the browser). 
 | 3 | Black Gold | Syndicate | Capture both oil derricks with engineers, then destroy the Soviet Construction Yard |
 | 4 | Ghost Protocol | Syndicate | Alone with the cloaked Specter: destroy the Missile Silo before it launches at 6:00 |
 
+## Map editor
+
+Open **Map editor** on the start screen. The map is shown as an isometric diamond, laid out like the game with north at the top.
+
+- Start from a blank map (48, 64, 88 or 112 tiles) or a freshly generated random one, and pick a look: grassland, desert or snow
+- Paint grass, water, rock and bridges (brush 1–5), add or clear ore
+- Place 2–4 starting bases, oil derricks and civilian buildings; click one again to remove it. The number of bases decides which modes the map can host
+- Save (kept in the browser), Save & play (starts a 1 vs 1 on it), Export / Import as a `.ironmap.json` file to share
+- Saved maps appear in the Battlefield list with a dashed border
+
 ## Modes
 
 | Mode | Players |
@@ -141,6 +151,9 @@ It also reads your army: it builds whatever counters what you field (anti-tank i
 | `src/entities.js` | `Unit` (orders, movement, attack, harvester state machine) and `Building` |
 | `src/player.js` | Credits, power, production queues |
 | `src/ai.js` | Skirmish AI |
+| `src/missions.js` | Campaign missions, objectives and progress |
+| `src/editor.js` | Map editor |
+| `src/customMaps.js` | Storing, encoding and registering custom maps |
 | `src/maps.js` | Map catalog: geographic outlines, mountains, deserts, starts, ore |
 | `src/map.js` | Terrain generation (random and geographic), ore, land/sea/air passability |
 | `src/pathfinding.js` | A* on the tile grid plus line-of-sight smoothing |
