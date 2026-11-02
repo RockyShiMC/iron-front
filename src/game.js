@@ -16,6 +16,9 @@ FORMATION.sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
 
 export class Game {
   constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal' } = {}) {
+    // Kept so a battle can be restarted on the same map, and so saves can rebuild the terrain
+    this.seed = seed;
+    this.setup = { faction, map, difficulty };
     this.map = new GameMap(map, seed);
     this.pathfinder = new Pathfinder(this.map);
     this.players = [
@@ -36,6 +39,7 @@ export class Game {
     this.effects = [];
     this.time = 0;
     this.explored = new Uint8Array(this.map.w * this.map.h);
+    this.visStamp = 0; // bumped whenever more of the map is revealed
     this.visTimer = 0;
     this.oreTimer = 0;
     this.oreReserved = new Map(); // tile -> harvester
@@ -484,15 +488,19 @@ export class Game {
 
   updateVisibility() {
     const m = this.map;
+    let changed = false;
     const reveal = (x, y, r) => {
       for (let ty = Math.floor(y - r); ty <= y + r; ty++) {
         for (let tx = Math.floor(x - r); tx <= x + r; tx++) {
-          if (m.inBounds(tx, ty) && dist(tx + 0.5, ty + 0.5, x, y) <= r) this.explored[m.idx(tx, ty)] = 1;
+          if (!m.inBounds(tx, ty) || dist(tx + 0.5, ty + 0.5, x, y) > r) continue;
+          const i = m.idx(tx, ty);
+          if (!this.explored[i]) { this.explored[i] = 1; changed = true; }
         }
       }
     };
     for (const u of this.units) if (u.owner === this.human) reveal(u.x, u.y, u.def.sight);
     for (const b of this.buildings) if (b.owner === this.human) reveal(b.x, b.y, b.def.sight + b.w / 2);
+    if (changed) this.visStamp++;
   }
 
   isExplored(x, y) {

@@ -5,6 +5,9 @@ import { shade, hashTile, clamp, mulberry32, fbm, vnoise, smoothstep, dist } fro
 const CHUNK = 8; // terrain is painted in CHUNK x CHUNK tile pieces
 const CHUNK_TOP = 40; // headroom above a chunk for boulders and bushes
 const MAX_CHUNKS = 160;
+// Chunks paint a few pixels past their diamond so neighbours overlap; otherwise
+// their soft edges show as a grid when the canvas is scaled on high-DPI screens
+const CHUNK_BLEED = 0.08;
 
 // Allied structures are pale concrete, Soviet ones dark rust-brown
 const STYLE = {
@@ -141,9 +144,9 @@ export class Renderer {
       for (let pxi = 0; pxi < c.width; pxi++) {
         const X = pxi - ox;
         const lx = (X / HALF_W + Y / HALF_H) / 2, ly = (Y / HALF_H - X / HALF_W) / 2;
-        if (lx < 0 || ly < 0 || lx >= CH || ly >= CH) continue;
+        if (lx < -CHUNK_BLEED || ly < -CHUNK_BLEED || lx >= CH + CHUNK_BLEED || ly >= CH + CHUNK_BLEED) continue;
         const x = x0 + lx, y = y0 + ly;
-        if (x >= S || y >= S) continue;
+        if (x < 0 || y < 0 || x >= S || y >= S) continue;
         const o = (py * c.width + pxi) * 4;
         const gN = samp(F.grass, x, y), mott = (samp(F.mott, x, y) - 0.5) * 34;
         let r = G1[0] + (G2[0] - G1[0]) * gN + mott;
@@ -236,7 +239,7 @@ export class Renderer {
       let ch = this.chunks.get(key);
       if (!ch) { ch = { canvas: this.renderChunk(c.cx, c.cy) }; this.chunks.set(key, ch); }
       ch.used = ++this.chunkUse;
-      ctx.drawImage(ch.canvas, c.left, c.top);
+      ctx.drawImage(ch.canvas, Math.round(c.left), Math.round(c.top));
     }
     // Prefetch one neighbouring chunk per frame, and forget the least recently used ones
     for (let cy = cy0 - 1; cy <= cy1 + 1; cy++) {
@@ -1419,31 +1422,32 @@ export class Renderer {
     }
   }
 
+  // The shroud is one pixel per tile (plus an opaque border), stretched onto the
+  // isometric grid with smoothing, so its edge is a soft fade instead of tile outlines
   drawShroud() {
-    const g = this.g, m = g.map, ctx = this.ctx;
-    const S = m.w;
-    const v = this.visibleTiles();
-    for (let y = v.y0; y <= v.y1; y++) {
-      for (let x = v.x0; x <= v.x1; x++) {
-        const i = y * S + x;
-        if (g.explored[i]) {
-          // soften the shroud edge
-          const edge = !(g.explored[i - 1] ?? 1) || !(g.explored[i + 1] ?? 1) || !(g.explored[i - S] ?? 1) || !(g.explored[i + S] ?? 1);
-          if (!edge) continue;
-          const c = this.toScreen(x + 0.5, y + 0.5);
-          if (!this.onScreen(c, 40)) continue;
-          this.tilePath(x, y, -0.02);
-          ctx.fillStyle = 'rgba(0,0,0,0.45)';
-          ctx.fill();
-          continue;
-        }
-        const c = this.toScreen(x + 0.5, y + 0.5);
-        if (!this.onScreen(c, 40)) continue;
-        this.tilePath(x, y, -0.03);
-        ctx.fillStyle = '#000';
-        ctx.fill();
-      }
+    const g = this.g, S = g.map.w, ctx = this.ctx;
+    if (!this.fog) {
+      this.fog = document.createElement('canvas');
+      this.fog.width = this.fog.height = S + 2;
+      this.fogStamp = -1;
     }
+    if (this.fogStamp !== g.visStamp) {
+      this.fogStamp = g.visStamp;
+      const fctx = this.fog.getContext('2d');
+      const img = fctx.createImageData(S + 2, S + 2);
+      for (let y = -1; y <= S; y++) {
+        for (let x = -1; x <= S; x++) {
+          const inside = x >= 0 && y >= 0 && x < S && y < S;
+          if (!inside || !g.explored[y * S + x]) img.data[((y + 1) * (S + 2) + x + 1) * 4 + 3] = 255;
+        }
+      }
+      fctx.putImageData(img, 0, 0);
+    }
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.transform(HALF_W, HALF_H, -HALF_W, HALF_H, -this.cam.x, -this.cam.y);
+    ctx.drawImage(this.fog, -1, -1);
+    ctx.restore();
   }
 
   // ---------- overlays ----------

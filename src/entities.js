@@ -3,6 +3,10 @@ import { dist, distToEntity, turnToward, angleDiff } from './util.js';
 
 let nextId = 1;
 
+// Saved games carry the id counter so new entities never reuse a loaded id
+export function peekNextId() { return nextId; }
+export function setNextId(n) { nextId = n; }
+
 class Entity {
   constructor(key, def, owner) {
     this.id = nextId++;

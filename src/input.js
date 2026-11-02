@@ -5,7 +5,8 @@ const SCROLL_SPEED = 900;
 
 // RA2-style controls: left click selects / commands, right click deselects or cancels.
 export class Input {
-  constructor(canvas, game, renderer) {
+  constructor(canvas, game, renderer, signal) {
+    this.signal = signal; // aborted when the battle ends, removing every listener
     this.canvas = canvas;
     this.g = game;
     this.r = renderer;
@@ -29,13 +30,14 @@ export class Input {
 
   bind() {
     const c = this.canvas;
-    c.addEventListener('contextmenu', (e) => e.preventDefault());
+    const opts = { signal: this.signal };
+    c.addEventListener('contextmenu', (e) => e.preventDefault(), opts);
     c.addEventListener('mousedown', (e) => {
       const p = this.local(e);
       if (e.button === 0) this.down = { x: p.x, y: p.y };
       else if (e.button === 1) { e.preventDefault(); this.pan = { x: p.x, y: p.y }; }
       else if (e.button === 2) this.cancel();
-    });
+    }, opts);
     window.addEventListener('mousemove', (e) => {
       const p = this.local(e);
       this.mouse.x = p.x;
@@ -51,7 +53,7 @@ export class Input {
         const x = Math.min(p.x, this.down.x), y = Math.min(p.y, this.down.y);
         this.dragRect = { x, y, w: Math.abs(p.x - this.down.x), h: Math.abs(p.y - this.down.y) };
       }
-    });
+    }, opts);
     window.addEventListener('mouseup', (e) => {
       if (e.button === 1) this.pan = null;
       if (e.button !== 0 || !this.down) return;
@@ -59,11 +61,11 @@ export class Input {
       else this.click(this.down.x, this.down.y, e);
       this.down = null;
       this.dragRect = null;
-    });
-    c.addEventListener('mouseleave', () => { this.mouse.inside = false; });
-    window.addEventListener('keydown', (e) => this.keyDown(e));
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key));
-    window.addEventListener('blur', () => this.keys.clear());
+    }, opts);
+    c.addEventListener('mouseleave', () => { this.mouse.inside = false; }, opts);
+    window.addEventListener('keydown', (e) => this.keyDown(e), opts);
+    window.addEventListener('keyup', (e) => this.keys.delete(e.key), opts);
+    window.addEventListener('blur', () => this.keys.clear(), opts);
   }
 
   local(e) {
@@ -260,7 +262,7 @@ export class Input {
 
   // ---------- keyboard ----------
   keyDown(e) {
-    if (e.target && e.target.tagName === 'INPUT') return;
+    if (!this.enabled || (e.target && e.target.tagName === 'INPUT')) return;
     this.keys.add(e.key);
     const g = this.g;
     const k = e.key.toLowerCase();

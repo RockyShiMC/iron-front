@@ -10,7 +10,10 @@
   <canvas id="game"></canvas>
 
   <aside id="sidebar">
-    <div id="credits">$ 0</div>
+    <div id="topbar">
+      <div id="credits">$ 0</div>
+      <button id="btn-menu" title="Pause, save, load, restart or quit (Esc)">Menu</button>
+    </div>
     <canvas id="minimap" width="200" height="104"></canvas>
     <div id="power"><div id="power-fill"></div></div>
     <div id="power-text"></div>
@@ -31,8 +34,11 @@
   <div id="messages"></div>
   <div id="paused">PAUSED — press P to resume</div>
 
+  <div id="menu"><div class="panel menu"></div></div>
+
   <div id="overlay">
-    <div class="panel setup">
+    <div class="panel status" id="status-panel" hidden></div>
+    <div class="panel setup" id="setup-panel">
       <h1>Iron Front</h1>
       <p class="sub">A classic real-time strategy skirmish. Build a base, mine ore, rule land, sea and air.</p>
 
@@ -59,6 +65,7 @@
       </div>
 
       <button id="start">Start battle</button>
+      <button id="load" class="secondary" hidden>Load saved battle</button>
 
       <details class="help">
         <summary>Controls</summary>
@@ -73,6 +80,7 @@
         <tr><td>Ctrl+1–9 / 1–9</td><td>Set / recall group (double tap to jump)</td></tr>
         <tr><td>H</td><td>Jump to base</td></tr>
         <tr><td>Arrows / screen edge / middle drag</td><td>Scroll</td></tr>
+        <tr><td>Esc</td><td>Menu: pause, save, load, restart, quit</td></tr>
         <tr><td>P</td><td>Pause</td></tr>
         <tr><td>M / V / U</td><td>Toggle sound effects / announcer / unit voices</td></tr>
       </table>

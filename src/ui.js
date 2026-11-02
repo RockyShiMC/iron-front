@@ -2,7 +2,7 @@ import { FACTIONS, defOf } from './config.js';
 import { categoryOf } from './player.js';
 
 export class UI {
-  constructor(game, input, renderer, audio) {
+  constructor(game, input, renderer, audio, signal) {
     this.g = game;
     this.input = input;
     this.r = renderer;
@@ -25,17 +25,23 @@ export class UI {
       voice: document.getElementById('btn-voice'),
       units: document.getElementById('btn-units'),
     };
+    this.signal = signal;
     this.buttons = [];
     this.tabButtons = {};
     this.shownMessages = 0;
     this.buildTabs();
     this.bindMinimap();
-    this.el.sell.addEventListener('click', () => { this.input.placing = null; this.input.mode = this.input.mode === 'sell' ? null : 'sell'; this.g.sound('click'); });
-    this.el.repair.addEventListener('click', () => { this.input.placing = null; this.input.mode = this.input.mode === 'repair' ? null : 'repair'; this.g.sound('click'); });
-    this.el.sfx.addEventListener('click', () => this.audio.setSfx(!this.audio.sfxOn));
-    this.el.voice.addEventListener('click', () => this.audio.setVoice(!this.audio.voiceOn));
-    this.el.units.addEventListener('click', () => this.audio.setUnitVoice(!this.audio.unitVoiceOn));
+    this.el.sell.addEventListener('click', () => { this.input.placing = null; this.input.mode = this.input.mode === 'sell' ? null : 'sell'; this.g.sound('click'); }, { signal: this.signal });
+    this.el.repair.addEventListener('click', () => { this.input.placing = null; this.input.mode = this.input.mode === 'repair' ? null : 'repair'; this.g.sound('click'); }, { signal: this.signal });
+    this.el.sfx.addEventListener('click', () => this.audio.setSfx(!this.audio.sfxOn), { signal: this.signal });
+    this.el.voice.addEventListener('click', () => this.audio.setVoice(!this.audio.voiceOn), { signal: this.signal });
+    this.el.units.addEventListener('click', () => this.audio.setUnitVoice(!this.audio.unitVoiceOn), { signal: this.signal });
     for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => this.g.sound('click'));
+  }
+
+  // Clear everything this battle put in the sidebar (listeners go with the abort signal)
+  destroy() {
+    for (const k of ['tabs', 'items', 'messages', 'info']) this.el[k].innerHTML = '';
   }
 
   buildTabs() {
@@ -70,10 +76,10 @@ export class UI {
       if (e.button === 2 || e.buttons === 2) return;
       this.r.centerOn(w.x, w.y);
     };
-    mm.addEventListener('mousedown', (e) => { dragging = true; go(e); });
-    mm.addEventListener('mousemove', (e) => { if (dragging) go(e); });
-    window.addEventListener('mouseup', () => { dragging = false; });
-    mm.addEventListener('contextmenu', (e) => e.preventDefault());
+    mm.addEventListener('mousedown', (e) => { dragging = true; go(e); }, { signal: this.signal });
+    mm.addEventListener('mousemove', (e) => { if (dragging) go(e); }, { signal: this.signal });
+    window.addEventListener('mouseup', () => { dragging = false; }, { signal: this.signal });
+    mm.addEventListener('contextmenu', (e) => e.preventDefault(), { signal: this.signal });
   }
 
   itemClick(key) {

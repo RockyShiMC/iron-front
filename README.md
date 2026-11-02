@@ -58,6 +58,8 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 - A* pathfinding with path smoothing, formation moves, and units pushing apart so they don't stack
 - Terrain painted lazily in 8×8-tile chunks, so even the 120×120 World map starts in well under a second
 - Sell, repair, rally points, control groups and a minimap
+- Battle menu (Esc or the Menu button): pause, save, load, restart the same map, or quit to the main menu
+- Save and load: five save slots kept in the browser's local storage. A save holds the whole battle (units, buildings, orders, build queues, ore, shroud, AI plans); the map itself is rebuilt from its seed. Saved battles can also be loaded from the start screen
 - Sound: every effect is synthesized live with the Web Audio API (guns, cannons, rockets, Tesla crackle, Prism hum, explosions, construction, chrono teleports, interface chirps). Battle sounds fade with distance from the screen center and pan left/right
 - Procedural textures: the map is painted per pixel from noise (grass tones, dirt patches, sandy shores with foam, deep/shallow water with glints, rocky ground, faceted boulders, bushes, tufts, flowers); buildings have shaded walls, panel seams, windows, parapets and drop shadows; tanks have rolling treads, two-tier hulls, shaded turrets and muzzle brakes; ore is faceted crystal on stained soil
 - Unit voice responses: every unit type has its own lines, pitch and speed for selection, move and attack orders (e.g. Conscript "For the Union!", Apocalypse "Annihilate them!"). EVA outranks unit chatter
@@ -73,6 +75,7 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 | Double click | Select all of that type on screen |
 | A / S / Q | Attack-move / stop / select all combat units |
 | Ctrl+1–9, 1–9 | Set / recall group (double tap to jump to it) |
+| Esc | Battle menu (pause / save / load / restart / quit) |
 | H | Jump to base |
 | Arrows, screen edge, middle-drag | Scroll |
 | P | Pause |

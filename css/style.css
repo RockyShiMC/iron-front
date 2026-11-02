@@ -37,7 +37,19 @@ html, body {
   gap: 6px;
 }
 
+#topbar { display: flex; gap: 4px; }
+#btn-menu {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--edge);
+  padding: 0 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#btn-menu:hover { border-color: #8fb0c0; color: #fff; }
+
 #credits {
+  flex: 1;
   font: bold 20px/1 Consolas, monospace;
   color: var(--accent);
   text-align: center;
@@ -254,3 +266,41 @@ html, body {
 body[data-faction="allied"] #sidebar { border-left-color: #2f5c92; }
 body[data-faction="soviet"] #sidebar { border-left-color: #8c2a1b; }
 body[data-faction="soviet"] #tabs button.active { background: #5a2a22; border-color: #b0503e; }
+
+/* Secondary buttons in panels */
+.panel button.secondary { background: var(--panel-2); border-color: var(--edge); color: var(--text); }
+.panel button.secondary:hover { background: #2c3a42; }
+.panel button:disabled { opacity: 0.35; cursor: not-allowed; }
+.panel #load { display: block; margin: 6px auto 4px; font-size: 13px; padding: 7px 20px; }
+.panel #load[hidden] { display: none; }
+
+/* In-battle menu and save slots */
+#menu {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 20;
+}
+.panel.menu { width: 480px; max-width: 94vw; max-height: 96vh; overflow-y: auto; }
+.menu-buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.menu-buttons.row { flex-direction: row; justify-content: center; }
+.panel .menu-buttons button { margin: 0; }
+.panel .hint { font-size: 11px; margin: 12px 0 0; }
+.slots { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; text-align: left; }
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  padding: 6px 8px;
+}
+.slot .num { font: bold 18px Consolas, monospace; color: var(--accent); width: 18px; text-align: center; }
+.slot .meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.slot .meta span { color: var(--muted); font-size: 11px; }
+.slot .meta .empty { color: var(--muted); font-weight: normal; }
+.panel .slot button { margin: 0; padding: 6px 12px; font-size: 12px; letter-spacing: 0; }
+.panel .note { min-height: 1.3em; margin: 8px 0 0; color: var(--accent); }
