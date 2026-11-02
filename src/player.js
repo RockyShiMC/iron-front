@@ -1,6 +1,6 @@
 import { UNITS, BUILDINGS, FACTIONS, START_CREDITS, defOf } from './config.js';
 
-export const CATEGORIES = ['building', 'infantry', 'vehicle'];
+export const CATEGORIES = ['building', 'infantry', 'vehicle', 'air', 'naval'];
 const MAX_QUEUE = 5;
 
 export function categoryOf(key) {
@@ -15,7 +15,10 @@ export class Player {
     this.color = FACTIONS[faction].color;
     this.isAI = isAI;
     this.credits = START_CREDITS;
-    this.queues = { building: [], infantry: [], vehicle: [] };
+    this.queues = { building: [], infantry: [], vehicle: [], air: [], naval: [] };
+    // Difficulty handicaps (AI only): harvesting payout and production speed
+    this.incomeMult = 1;
+    this.buildMult = 1;
     this.powerOut = 0;
     this.powerUse = 0;
     this.counts = {};
@@ -83,7 +86,7 @@ export class Player {
       if (item.ready) continue;
       const def = defOf(item.key);
       if (!this.producerFor(cat, g) || !this.prereqsMet(item.key)) continue; // on hold
-      const rate = (this.lowPower() ? 0.5 : 1) / def.time;
+      const rate = ((this.lowPower() ? 0.5 : 1) * this.buildMult) / def.time;
       const dp = Math.min(rate * dt, 1 - item.progress);
       const cost = def.cost * dp;
       if (this.credits < cost) {

@@ -26,7 +26,7 @@ const EVA_LINES = {
 const URGENT = new Set(['Our base is under attack!', 'Mission accomplished', 'Mission failed', 'Low power']);
 
 // Minimum seconds between two plays of the same sound, so 20 rifles don't clip
-const THROTTLE = { gun: 0.05, cannon: 0.07, impact: 0.06, boom: 0.06, die: 0.08, tesla: 0.08, prism: 0.08, rocket: 0.06 };
+const THROTTLE = { gun: 0.05, cannon: 0.07, impact: 0.06, boom: 0.06, die: 0.08, tesla: 0.08, prism: 0.08, rocket: 0.06, flak: 0.08, bomb: 0.1 };
 const MAX_VOICES = 28;
 
 function loadPref(key, fallback) {
@@ -251,6 +251,16 @@ const SOUNDS = {
     a.tone(out, t, { freq: 1050, to: 3600, dur: 0.35, type: 'triangle', gain: 0.08, attack: 0.02 });
     a.noise(out, t, { filter: 'highpass', freq: 4000, dur: 0.3, gain: 0.08 });
     return 0.42;
+  },
+  flak(a, out, t) {
+    a.noise(out, t, { freq: 2200, to: 300, dur: 0.25, gain: 0.5 });
+    a.tone(out, t, { freq: 200, to: 70, dur: 0.18, type: 'square', gain: 0.15 });
+    return 0.28;
+  },
+  bomb(a, out, t) {
+    // falling whistle
+    a.tone(out, t, { freq: 1400, to: 500, dur: 0.6, gain: 0.08, attack: 0.05 });
+    return 0.62;
   },
   // ----- impacts / deaths -----
   impact(a, out, t) {

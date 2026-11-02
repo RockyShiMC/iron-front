@@ -4,6 +4,7 @@ import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
 import { AudioSystem } from './audio.js';
+import { MAPS } from './maps.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -14,9 +15,9 @@ let game, renderer, input, ui;
 let running = false;
 let last = performance.now();
 
-function startGame(faction) {
+function startGame({ faction, map, difficulty }) {
   audio.unlock();
-  game = new Game({ faction });
+  game = new Game({ faction, map, difficulty });
   game.soundEnabled = true;
   renderer = new Renderer(canvas, game);
   input = new Input(canvas, game, renderer);
@@ -93,11 +94,37 @@ function showResult(result) {
   document.getElementById('again').onclick = () => location.reload();
 }
 
-for (const btn of document.querySelectorAll('.faction')) {
-  btn.addEventListener('click', () => {
-    audio.unlock(); // inside the click, so the browser allows audio
-    // Painting the map takes about a second; show something meanwhile
-    overlay.querySelector('.panel').innerHTML = '<h1>Deploying…</h1><p class="sub">Generating battlefield</p>';
-    setTimeout(() => startGame(btn.dataset.faction), 30);
-  });
+// ---------- setup screen ----------
+const setup = { faction: 'allied', map: 'random', difficulty: 'normal' };
+try { Object.assign(setup, JSON.parse(localStorage.getItem('ironfront.setup') || '{}')); } catch { /* no saved setup */ }
+if (!MAPS[setup.map]) setup.map = 'random';
+
+function choose(group, attr, value) {
+  for (const b of document.querySelectorAll(group)) b.classList.toggle('selected', b.dataset[attr] === value);
 }
+
+const mapList = document.getElementById('map-list');
+for (const [id, m] of Object.entries(MAPS)) {
+  const b = document.createElement('button');
+  b.dataset.map = id;
+  b.innerHTML = `<b>${m.name}</b><span>${m.size}×${m.size}</span>`;
+  b.addEventListener('click', () => { setup.map = id; refreshSetup(); });
+  mapList.appendChild(b);
+}
+for (const b of document.querySelectorAll('.faction')) b.addEventListener('click', () => { setup.faction = b.dataset.faction; refreshSetup(); });
+for (const b of document.querySelectorAll('#difficulty button')) b.addEventListener('click', () => { setup.difficulty = b.dataset.difficulty; refreshSetup(); });
+
+function refreshSetup() {
+  choose('.faction', 'faction', setup.faction);
+  choose('#map-list button', 'map', setup.map);
+  choose('#difficulty button', 'difficulty', setup.difficulty);
+  document.getElementById('map-desc').textContent = MAPS[setup.map].desc;
+}
+refreshSetup();
+
+document.getElementById('start').addEventListener('click', () => {
+  audio.unlock(); // inside the click, so the browser allows audio
+  try { localStorage.setItem('ironfront.setup', JSON.stringify(setup)); } catch { /* storage unavailable */ }
+  overlay.querySelector('.panel').innerHTML = `<h1>Deploying…</h1><p class="sub">${MAPS[setup.map].name} · ${setup.difficulty === 'hard' ? 'Hard' : 'Normal'}</p>`;
+  setTimeout(() => startGame({ ...setup }), 30);
+});

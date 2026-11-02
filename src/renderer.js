@@ -2,6 +2,10 @@ import { TILE_W, TILE_H, HALF_W, HALF_H, BUILDINGS } from './config.js';
 import { GRASS, WATER, ROCK } from './map.js';
 import { shade, hashTile, clamp, mulberry32, fbm, vnoise, smoothstep, dist } from './util.js';
 
+const CHUNK = 8; // terrain is painted in CHUNK x CHUNK tile pieces
+const CHUNK_TOP = 40; // headroom above a chunk for boulders and bushes
+const MAX_CHUNKS = 160;
+
 // Allied structures are pale concrete, Soviet ones dark rust-brown
 const STYLE = {
   allied: { wall: '#9b9a90', roof: '#76766e' },
@@ -17,7 +21,7 @@ export class Renderer {
     this.viewW = 0;
     this.viewH = 0;
     this.time = 0;
-    this.terrain = this.prerenderTerrain();
+    this.initTerrain();
     this.miniTerrain = null;
     this.miniTimer = 0;
   }
@@ -61,75 +65,100 @@ export class Renderer {
   }
 
   // ---------- terrain ----------
-  // Paints the whole map once, pixel by pixel. Smooth noise fields are sampled
-  // on a quarter-tile grid and interpolated, which keeps this fast (~a few hundred ms).
-  prerenderTerrain() {
+  // The map is painted pixel by pixel from smooth noise fields, in chunks of
+  // CHUNK x CHUNK tiles that are painted the first time they come into view
+  // (and prefetched nearby when there's time), so even large maps start fast.
+  initTerrain() {
     const m = this.g.map, S = m.w;
-    const c = document.createElement('canvas');
-    c.width = S * TILE_W;
-    c.height = S * TILE_H + TILE_H;
-    const ctx = c.getContext('2d');
-    const ox = S * HALF_W;
-
-    // --- low-res fields (R samples per tile) ---
     const R = 4, FW = S * R + 1;
-    const fGrass = new Float32Array(FW * FW), fDirt = new Float32Array(FW * FW), fMott = new Float32Array(FW * FW);
-    const fWater = new Float32Array(FW * FW), fRock = new Float32Array(FW * FW);
-    const tileIs = (t) => (x, y) => {
-      // bilinear blend of the per-tile indicator, sampled between tile centers
+    const field = () => new Float32Array(FW * FW);
+    const F = (this.fields = {
+      grass: field(), dirt: field(), mott: field(), water: field(), rock: field(), desert: field(), snow: field(),
+    });
+    // bilinear blend of a per-tile indicator, sampled between tile centers
+    const blend = (test) => (x, y) => {
       const gx = clamp(x - 0.5, 0, S - 1), gy = clamp(y - 0.5, 0, S - 1);
       const ix = Math.min(S - 2, Math.floor(gx)), iy = Math.min(S - 2, Math.floor(gy));
       const fx = gx - ix, fy = gy - iy;
-      const v = (xx, yy) => (m.terrain[yy * S + xx] === t ? 1 : 0);
+      const v = (xx, yy) => (test(yy * S + xx) ? 1 : 0);
       const a = v(ix, iy), b = v(ix + 1, iy), cc = v(ix, iy + 1), d = v(ix + 1, iy + 1);
       return a + (b - a) * fx + (cc - a) * fy + (a - b - cc + d) * fx * fy;
     };
-    const waterAt = tileIs(WATER), rockAt = tileIs(ROCK);
+    const waterAt = blend((i) => m.terrain[i] === WATER), rockAt = blend((i) => m.terrain[i] === ROCK);
+    const desertAt = blend((i) => m.biome[i] === 1), snowAt = blend((i) => m.biome[i] === 2);
     for (let j = 0; j < FW; j++) {
       for (let i = 0; i < FW; i++) {
         const x = i / R, y = j / R, k = j * FW + i;
-        fGrass[k] = fbm(x * 0.28, y * 0.28, 4);
-        fDirt[k] = fbm(x * 0.17 + 40, y * 0.17 + 40, 3);
-        fMott[k] = fbm(x * 1.3, y * 1.3, 2);
-        fWater[k] = waterAt(x, y) + (vnoise(x * 1.4 + 7, y * 1.4) - 0.5) * 0.32;
-        fRock[k] = rockAt(x, y) + (vnoise(x * 2 + 3, y * 2) - 0.5) * 0.3;
+        F.grass[k] = fbm(x * 0.28, y * 0.28, 4);
+        F.dirt[k] = fbm(x * 0.17 + 40, y * 0.17 + 40, 3);
+        F.mott[k] = fbm(x * 1.3, y * 1.3, 2);
+        F.water[k] = waterAt(x, y) + (vnoise(x * 1.4 + 7, y * 1.4) - 0.5) * 0.32;
+        F.rock[k] = rockAt(x, y) + (vnoise(x * 2 + 3, y * 2) - 0.5) * 0.3;
+        F.desert[k] = desertAt(x, y) + (vnoise(x * 0.9 + 21, y * 0.9) - 0.5) * 0.4;
+        F.snow[k] = snowAt(x, y) + (vnoise(x * 0.9 + 33, y * 0.9) - 0.5) * 0.4;
       }
     }
-    const samp = (F, x, y) => {
-      const fx = clamp(x * R, 0, FW - 1.001), fy = clamp(y * R, 0, FW - 1.001);
-      const ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy, k = iy * FW + ix;
-      const a = F[k], b = F[k + 1], cc = F[k + FW], d = F[k + FW + 1];
-      return a + (b - a) * tx + (cc - a) * ty + (a - b - cc + d) * tx * ty;
-    };
+    this.fieldR = R;
+    this.fieldW = FW;
+    this.grain = new Uint8Array(65536);
+    const rng = mulberry32(99);
+    for (let i = 0; i < this.grain.length; i++) this.grain[i] = (rng() * 255) | 0;
+    this.waterTiles = [];
+    for (let i = 0; i < S * S; i++) if (m.terrain[i] === WATER) this.waterTiles.push(i);
+    this.chunks = new Map();
+    this.chunkUse = 0;
+  }
 
-    // --- palette ---
+  sampleField(F, x, y) {
+    const R = this.fieldR, FW = this.fieldW;
+    const fx = clamp(x * R, 0, FW - 1.001), fy = clamp(y * R, 0, FW - 1.001);
+    const ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy, k = iy * FW + ix;
+    const a = F[k], b = F[k + 1], cc = F[k + FW], d = F[k + FW + 1];
+    return a + (b - a) * tx + (cc - a) * ty + (a - b - cc + d) * tx * ty;
+  }
+
+  renderChunk(cx, cy) {
+    const m = this.g.map, S = m.w, F = this.fields, CH = CHUNK;
+    const x0 = cx * CH, y0 = cy * CH;
+    const c = document.createElement('canvas');
+    c.width = CH * TILE_W;
+    c.height = CH * TILE_H + CHUNK_TOP;
+    const ctx = c.getContext('2d');
+    const ox = CH * HALF_W;
+    // global pixel offsets keep the grain seamless across chunks
+    const gox = (x0 - y0) * HALF_W - ox, goy = (x0 + y0) * HALF_H - CHUNK_TOP;
+    const samp = (f, x, y) => this.sampleField(f, x, y);
+    const grain = this.grain;
+
     const G1 = [80, 112, 46], G2 = [128, 154, 70], DIRT = [138, 116, 80], ROCKG = [104, 98, 84];
     const SAND = [178, 162, 116], SHALLOW = [44, 104, 118], DEEP = [18, 48, 82], FOAM = [210, 225, 215];
-    const grain = new Uint8Array(65536);
-    const rng = mulberry32(99);
-    for (let i = 0; i < grain.length; i++) grain[i] = (rng() * 255) | 0;
+    const DESERT = [204, 178, 122], SNOW = [226, 231, 236];
 
     const img = ctx.createImageData(c.width, c.height);
     const px = img.data;
     for (let py = 0; py < c.height; py++) {
-      const Y = py;
+      const Y = py - CHUNK_TOP;
       for (let pxi = 0; pxi < c.width; pxi++) {
         const X = pxi - ox;
-        const x = (X / HALF_W + Y / HALF_H) / 2, y = (Y / HALF_H - X / HALF_W) / 2;
-        if (x < 0 || y < 0 || x >= S || y >= S) continue;
+        const lx = (X / HALF_W + Y / HALF_H) / 2, ly = (Y / HALF_H - X / HALF_W) / 2;
+        if (lx < 0 || ly < 0 || lx >= CH || ly >= CH) continue;
+        const x = x0 + lx, y = y0 + ly;
+        if (x >= S || y >= S) continue;
         const o = (py * c.width + pxi) * 4;
-        const gN = samp(fGrass, x, y), mott = (samp(fMott, x, y) - 0.5) * 34;
+        const gN = samp(F.grass, x, y), mott = (samp(F.mott, x, y) - 0.5) * 34;
         let r = G1[0] + (G2[0] - G1[0]) * gN + mott;
         let gg = G1[1] + (G2[1] - G1[1]) * gN + mott;
         let b = G1[2] + (G2[2] - G1[2]) * gN + mott * 0.6;
-        // dirt patches
-        const dW = smoothstep(0.64, 0.76, samp(fDirt, x, y)) * 0.85;
-        if (dW > 0) { r += (DIRT[0] + mott - r) * dW; gg += (DIRT[1] + mott - gg) * dW; b += (DIRT[2] + mott - b) * dW; }
-        // rocky ground
-        const rW = smoothstep(0.3, 0.6, samp(fRock, x, y));
-        if (rW > 0) { r += (ROCKG[0] + mott - r) * rW; gg += (ROCKG[1] + mott - gg) * rW; b += (ROCKG[2] + mott - b) * rW; }
-        // shoreline and water
-        const w = samp(fWater, x, y);
+        const mix = (col, wgt, mo = 1) => { r += (col[0] + mott * mo - r) * wgt; gg += (col[1] + mott * mo - gg) * wgt; b += (col[2] + mott * mo - b) * wgt; };
+        const dW = smoothstep(0.64, 0.76, samp(F.dirt, x, y)) * 0.85;
+        if (dW > 0) mix(DIRT, dW);
+        const deW = smoothstep(0.3, 0.6, samp(F.desert, x, y));
+        if (deW > 0) mix(DESERT, deW, 0.7);
+        const snW = smoothstep(0.3, 0.6, samp(F.snow, x, y));
+        if (snW > 0) mix(SNOW, snW, 0.35);
+        const rW = smoothstep(0.3, 0.6, samp(F.rock, x, y));
+        if (rW > 0) mix(snW > 0.5 ? [170, 172, 176] : ROCKG, rW);
+        const w = samp(F.water, x, y);
         if (w > 0.5) {
           const dpt = smoothstep(0.5, 0.95, w);
           const ripple = Math.sin((x * 3.1 + y * 2.3) * 2 + mott * 0.2) * 5;
@@ -139,11 +168,9 @@ export class Renderer {
           const foam = 1 - smoothstep(0, 0.035, w - 0.5);
           if (foam > 0) { r += (FOAM[0] - r) * foam * 0.7; gg += (FOAM[1] - gg) * foam * 0.7; b += (FOAM[2] - b) * foam * 0.7; }
         } else if (w > 0.34) {
-          const sW = smoothstep(0.34, 0.46, w);
-          r += (SAND[0] + mott * 0.5 - r) * sW; gg += (SAND[1] + mott * 0.5 - gg) * sW; b += (SAND[2] + mott * 0.5 - b) * sW;
+          mix(SAND, smoothstep(0.34, 0.46, w), 0.5);
         }
-        // fine grain + slight darkening at the map edge
-        const n = grain[(pxi * 7 + py * 131) & 65535] / 255 - 0.5;
+        const n = grain[((pxi + gox) * 7 + (py + goy) * 131) & 65535] / 255 - 0.5;
         const edge = 0.7 + 0.3 * smoothstep(0, 0.8, Math.min(x, y, S - x, S - y));
         px[o] = (r + n * 12) * edge;
         px[o + 1] = (gg + n * 12) * edge;
@@ -153,29 +180,80 @@ export class Renderer {
     }
     ctx.putImageData(img, 0, 0);
 
-    // --- decorations, back to front ---
+    // decorations, back to front
     const near = (x, y, r) => m.starts.some((s) => dist(x, y, s.x + 1.5, s.y + 1.5) < r);
-    this.waterTiles = [];
-    for (let s = 0; s < S * 2; s++) {
-      for (let x = 0; x <= s; x++) {
-        const y = s - x;
-        if (!m.inBounds(x, y)) continue;
+    for (let s = 0; s < CH * 2; s++) {
+      for (let lx = 0; lx <= s; lx++) {
+        const ly = s - lx, x = x0 + lx, y = y0 + ly;
+        if (lx >= CH || ly >= CH || !m.inBounds(x, y)) continue;
         const i = m.idx(x, y), t = m.terrain[i];
-        const cx = (x - y) * HALF_W + ox, cy = (x + y) * HALF_H + HALF_H;
-        if (t === WATER) { this.waterTiles.push(i); continue; }
-        if (t === ROCK) { this.drawBoulders(ctx, cx, cy, x, y); continue; }
+        const tcx = (lx - ly) * HALF_W + ox, tcy = (lx + ly) * HALF_H + HALF_H + CHUNK_TOP;
+        if (t === WATER) continue;
+        if (t === ROCK) { this.drawBoulders(ctx, tcx, tcy, x, y, m.biome[i] === 2); continue; }
         if (m.oreMax[i] || near(x, y, 5)) continue;
-        const h = hashTile(x * 3 + 1, y * 5 + 2);
-        if (h < 0.05) this.drawBush(ctx, cx + (hashTile(x, y) - 0.5) * 30, cy + (hashTile(y, x) - 0.5) * 12, 3 + h * 60);
-        else if (h < 0.13) this.drawTufts(ctx, cx, cy, x, y);
-        else if (h < 0.17) this.drawPebbles(ctx, cx, cy, x, y);
-        else if (h < 0.19) this.drawFlowers(ctx, cx, cy, x, y);
+        const h = hashTile(x * 3 + 1, y * 5 + 2), biome = m.biome[i];
+        if (biome === 2) continue; // bare snow
+        if (biome === 1) { if (h < 0.06) this.drawPebbles(ctx, tcx, tcy, x, y); continue; }
+        if (h < 0.05) this.drawBush(ctx, tcx + (hashTile(x, y) - 0.5) * 30, tcy + (hashTile(y, x) - 0.5) * 12, 3 + h * 60);
+        else if (h < 0.13) this.drawTufts(ctx, tcx, tcy, x, y);
+        else if (h < 0.17) this.drawPebbles(ctx, tcx, tcy, x, y);
+        else if (h < 0.19) this.drawFlowers(ctx, tcx, tcy, x, y);
       }
     }
     return c;
   }
 
-  drawBoulders(ctx, cx, cy, x, y) {
+  // Tile-coordinate bounds of what's on screen (with a margin)
+  visibleTiles(margin = 2) {
+    const S = this.g.map.w;
+    const pts = [[0, 0], [this.viewW, 0], [0, this.viewH], [this.viewW, this.viewH]].map(([x, y]) => this.toWorld(x, y));
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    return {
+      x0: Math.max(0, Math.floor(Math.min(...xs)) - margin), x1: Math.min(S - 1, Math.ceil(Math.max(...xs)) + margin),
+      y0: Math.max(0, Math.floor(Math.min(...ys)) - margin), y1: Math.min(S - 1, Math.ceil(Math.max(...ys)) + margin),
+    };
+  }
+
+  drawTerrain() {
+    const ctx = this.ctx, S = this.g.map.w;
+    const n = Math.ceil(S / CHUNK);
+    const v = this.visibleTiles(CHUNK);
+    const cx0 = Math.floor(v.x0 / CHUNK), cx1 = Math.floor(v.x1 / CHUNK);
+    const cy0 = Math.floor(v.y0 / CHUNK), cy1 = Math.floor(v.y1 / CHUNK);
+    const visible = [];
+    for (let cy = cy0; cy <= cy1; cy++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const p = this.toScreen(cx * CHUNK, cy * CHUNK);
+        const left = p.x - CHUNK * HALF_W, top = p.y - CHUNK_TOP;
+        if (left > this.viewW || left + CHUNK * TILE_W < 0 || top > this.viewH || top + CHUNK * TILE_H + CHUNK_TOP < 0) continue;
+        visible.push({ cx, cy, left, top });
+      }
+    }
+    // back to front, so boulders poking up from a nearer chunk overlap the one behind
+    visible.sort((a, b) => a.cx + a.cy - (b.cx + b.cy));
+    for (const c of visible) {
+      const key = c.cy * n + c.cx;
+      let ch = this.chunks.get(key);
+      if (!ch) { ch = { canvas: this.renderChunk(c.cx, c.cy) }; this.chunks.set(key, ch); }
+      ch.used = ++this.chunkUse;
+      ctx.drawImage(ch.canvas, c.left, c.top);
+    }
+    // Prefetch one neighbouring chunk per frame, and forget the least recently used ones
+    for (let cy = cy0 - 1; cy <= cy1 + 1; cy++) {
+      for (let cx = cx0 - 1; cx <= cx1 + 1; cx++) {
+        if (cx < 0 || cy < 0 || cx >= n || cy >= n || this.chunks.has(cy * n + cx)) continue;
+        this.chunks.set(cy * n + cx, { canvas: this.renderChunk(cx, cy), used: this.chunkUse });
+        cy = Infinity;
+        break;
+      }
+    }
+    if (this.chunks.size > MAX_CHUNKS) {
+      const old = [...this.chunks.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, this.chunks.size - MAX_CHUNKS);
+      for (const [k] of old) this.chunks.delete(k);
+    }
+  }
+
+  drawBoulders(ctx, cx, cy, x, y, snowy = false) {
     const n = 2 + Math.floor(hashTile(x, y + 9) * 3);
     for (let k = 0; k < n; k++) {
       const bx = cx + (hashTile(x + k, y * 3) - 0.5) * 34, by = cy + (hashTile(x * 5, y + k) - 0.5) * 12 + k * 2;
@@ -184,17 +262,17 @@ export class Renderer {
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath(); ctx.ellipse(bx + 3, by + 1, r * 1.1, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
       // dark (right) face
-      ctx.fillStyle = '#4a463e';
+      ctx.fillStyle = snowy ? '#6c707a' : '#4a463e';
       ctx.beginPath();
       ctx.moveTo(bx - r, by); ctx.lineTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05);
       ctx.lineTo(bx + r, by - h * 0.2); ctx.lineTo(bx + r * 0.6, by + r * 0.3); ctx.lineTo(bx - r * 0.5, by + r * 0.35);
       ctx.closePath(); ctx.fill();
-      // lit (left/top) faces
-      ctx.fillStyle = '#7d776a';
+      // lit (left/top) faces; snowy peaks get white caps
+      ctx.fillStyle = snowy ? '#b9bec6' : '#7d776a';
       ctx.beginPath();
       ctx.moveTo(bx - r, by); ctx.lineTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05); ctx.lineTo(bx - r * 0.05, by - h * 0.35);
       ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#9a9384';
+      ctx.fillStyle = snowy ? '#f2f5f8' : '#9a9384';
       ctx.beginPath();
       ctx.moveTo(bx - r * 0.4, by - h); ctx.lineTo(bx + r * 0.3, by - h * 1.05); ctx.lineTo(bx + r * 0.05, by - h * 0.6);
       ctx.closePath(); ctx.fill();
@@ -252,11 +330,12 @@ export class Renderer {
 
   // Animated glints on visible water
   drawWater() {
-    const ctx = this.ctx, g = this.g, S = g.map.w;
+    const ctx = this.ctx, g = this.g, S = g.map.w, m = g.map;
+    const v = this.visibleTiles();
     ctx.lineWidth = 1;
-    for (const i of this.waterTiles) {
-      if (!g.explored[i]) continue;
-      const x = i % S, y = (i / S) | 0;
+    for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+      const i = y * S + x;
+      if (m.terrain[i] !== WATER || !g.explored[i]) continue;
       const h = hashTile(x, y);
       const a = Math.sin(this.time * 1.6 + h * 40);
       if (a < 0.55) continue;
@@ -273,8 +352,7 @@ export class Renderer {
     const ctx = this.ctx, g = this.g;
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, this.viewW, this.viewH);
-    const S = g.map.w;
-    ctx.drawImage(this.terrain, -S * HALF_W - this.cam.x, -this.cam.y);
+    this.drawTerrain();
 
     this.drawWater();
     this.drawOre();
@@ -286,15 +364,20 @@ export class Renderer {
       if (!g.isExplored(b.x, b.y)) continue;
       list.push({ d: b.tx + b.ty + (b.w + b.h) / 2, e: b });
     }
+    const air = [];
     for (const u of g.units) {
       if (u.owner !== g.human && !g.isExplored(u.x, u.y)) continue;
-      list.push({ d: u.x + u.y, e: u });
+      // parked aircraft sit with the ground layer; flying ones go on top
+      if (u.isAir && u.z > 4) air.push(u);
+      else list.push({ d: u.x + u.y + (u.isAir ? 0.5 : 0), e: u });
     }
     list.sort((a, b) => a.d - b.d);
     for (const { e } of list) {
       if (e.isBuilding) this.drawBuilding(e);
       else if (this.onScreen(this.toScreen(e.x, e.y))) this.drawUnit(e);
     }
+    air.sort((a, b) => a.x + a.y - (b.x + b.y));
+    for (const u of air) if (this.onScreen(this.toScreen(u.x, u.y, u.z))) this.drawAircraft(u);
 
     this.drawProjectiles();
     this.drawEffects();
@@ -410,10 +493,13 @@ export class Renderer {
       if (u.owner !== g.human && !g.isExplored(u.x, u.y)) continue;
       const p = this.toScreen(u.x, u.y);
       if (!this.onScreen(p)) continue;
+      if (u.isNaval) { this.drawWake(u); continue; }
       const r = u.radius * HALF_W * 1.4;
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      // aircraft shadows drift away and shrink with altitude
+      const off = u.isAir ? u.z * 0.35 : 0, k = u.isAir ? 1 - u.z / 120 : 1;
+      ctx.fillStyle = u.isAir ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.3)';
       ctx.beginPath();
-      ctx.ellipse(p.x + 2, p.y + 1, r, r * 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x + 2 + off, p.y + 1 + off * 0.3, r * k, r * 0.5 * k, 0, 0, Math.PI * 2);
       ctx.fill();
     }
     // Building placement preview
@@ -656,6 +742,65 @@ export class Renderer {
         ctx.strokeStyle = shade(team, -0.2); ctx.lineWidth = 2; ctx.stroke();
         break;
       }
+      case 'airfield': {
+        // low apron with a runway, parking circles and a small control tower
+        this.box(x0, y0, x1, y1, 0, 4 * k, '#5a5a56', '#3e3e3a', '#4a4a46');
+        const run = [s(x0 + 0.2, y1 - 0.75, 4), s(x1 - 0.2, y1 - 0.75, 4), s(x1 - 0.2, y1 - 0.25, 4), s(x0 + 0.2, y1 - 0.25, 4)];
+        this.poly(run, '#36363a');
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 5]);
+        const ra = s(x0 + 0.3, y1 - 0.5, 4), rb = s(x1 - 0.3, y1 - 0.5, 4);
+        ctx.beginPath(); ctx.moveTo(ra.x, ra.y); ctx.lineTo(rb.x, rb.y); ctx.stroke();
+        ctx.setLineDash([]);
+        for (let n = 0; n < 4; n++) {
+          const pc = s(b.tx + 0.8 + (n % 2) * 1.4, b.ty + 0.8 + Math.floor(n / 2) * 1.4 - 0.3, 4);
+          ctx.strokeStyle = shade(team, 0.1);
+          ctx.beginPath(); ctx.ellipse(pc.x, pc.y, 11, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        this.box(x1 - 0.7, y0 + 0.05, x1 - 0.1, y0 + 0.65, 4, 30 * k, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
+        const bea = s(x1 - 0.4, y0 + 0.35, 32 * k);
+        ctx.fillStyle = Math.floor(b.anim * 2) % 2 ? '#ff5a4a' : '#7a2a22';
+        ctx.fillRect(bea.x - 2, bea.y - 2, 4, 4);
+        break;
+      }
+      case 'shipyard': {
+        // concrete piers around a wet dock, with a gantry crane
+        const pier = (ax0, ay0, ax1, ay1) => this.box(ax0, ay0, ax1, ay1, 0, 6 * k, '#77766e', '#4c4b45', '#5d5c55');
+        pier(x0, y0, x1, y0 + 0.5);
+        pier(x0, y0 + 0.5, x0 + 0.5, y1);
+        pier(x1 - 0.5, y0 + 0.5, x1, y1);
+        this.box(x0 + 0.05, y0 + 0.05, x0 + 1.0, y0 + 0.5, 6, 20 * k, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
+        this.teamStripe(x0 + 0.05, y0 + 0.05, x0 + 1.0, y0 + 0.5, 20 * k, team);
+        const l1 = s(x0 + 0.25, y1 - 0.2, 6), l2 = s(x1 - 0.25, y1 - 0.2, 6);
+        const t1 = s(x0 + 0.25, y1 - 0.2, 6 + 34 * k), t2 = s(x1 - 0.25, y1 - 0.2, 6 + 34 * k);
+        ctx.strokeStyle = '#e0b43d';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(t1.x, t1.y); ctx.lineTo(t2.x, t2.y); ctx.lineTo(l2.x, l2.y); ctx.stroke();
+        const hk = s(b.x + Math.sin(b.anim * 0.5) * 0.8, y1 - 0.2, 6 + 34 * k);
+        ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(hk.x, hk.y); ctx.lineTo(hk.x, hk.y + 16); ctx.stroke();
+        break;
+      }
+      case 'aaBattery': {
+        // sandbagged emplacement with twin barrels pointed skyward
+        const c = s(b.x, b.y, 0);
+        ctx.fillStyle = '#8f8160';
+        ctx.beginPath(); ctx.ellipse(c.x, c.y - 3, 19, 9.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#6e6248';
+        ctx.beginPath(); ctx.ellipse(c.x, c.y - 6, 14, 7, 0, 0, Math.PI * 2); ctx.fill();
+        const base = s(b.x, b.y, 10 * k);
+        ctx.fillStyle = shade(team, -0.25);
+        ctx.beginPath(); ctx.ellipse(base.x, base.y, 8, 5, 0, 0, Math.PI * 2); ctx.fill();
+        for (const side of [-0.07, 0.07]) {
+          const cs = Math.cos(b.turretDir), sn = Math.sin(b.turretDir);
+          const a = s(b.x - sn * side, b.y + cs * side, 11 * k);
+          const e = s(b.x - sn * side + cs * 0.35, b.y + cs * side + sn * 0.35, 26 * k);
+          ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+        }
+        break;
+      }
       case 'teslaReactor': {
         this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
         this.teamStripe(x0, y0, x1, y1, H, team);
@@ -784,8 +929,132 @@ export class Renderer {
 
   // ---------- units ----------
   drawUnit(u) {
-    if (u.isInfantry) this.drawInfantry(u);
+    if (u.isAir) this.drawAircraft(u);
+    else if (u.isNaval) this.drawShip(u);
+    else if (u.isInfantry) this.drawInfantry(u);
     else this.drawVehicle(u);
+  }
+
+  // Polygon from points in the unit's local frame (x forward, y right), at height z
+  local(u, pts, z) {
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    return pts.map(([lx, ly]) => this.toScreen(u.x + lx * c - ly * s, u.y + lx * s + ly * c, z));
+  }
+
+  drawAircraft(u) {
+    const ctx = this.ctx, team = u.owner.color, L = u.def.size;
+    const edge = 'rgba(0,0,0,0.6)';
+    const z = u.z + (u.def.look === 'heli' && !u.landed ? Math.sin(this.time * 3 + u.id) * 1.5 : 0);
+    if (u.def.look === 'heli') {
+      // tail boom + tail rotor
+      this.poly(this.local(u, [[-L * 0.2, 0.05], [-L * 1.35, 0.03], [-L * 1.35, -0.03], [-L * 0.2, -0.05]], z + 2), shade(team, -0.3), edge);
+      const tr = this.toScreen(u.x - Math.cos(u.dir) * L * 1.3, u.y - Math.sin(u.dir) * L * 1.3, z + 5);
+      ctx.strokeStyle = 'rgba(30,30,30,0.6)'; ctx.lineWidth = 1.5;
+      const ta = this.time * 40;
+      ctx.beginPath(); ctx.moveTo(tr.x, tr.y - 4 * Math.cos(ta)); ctx.lineTo(tr.x, tr.y + 4 * Math.cos(ta)); ctx.stroke();
+      // fuselage with cockpit glass
+      this.poly(this.local(u, [[L * 0.7, 0], [L * 0.45, L * 0.32], [-L * 0.4, L * 0.28], [-L * 0.5, 0], [-L * 0.4, -L * 0.28], [L * 0.45, -L * 0.32]], z), shade(team, -0.15), edge);
+      this.poly(this.local(u, [[L * 0.68, 0], [L * 0.42, L * 0.2], [L * 0.25, 0], [L * 0.42, -L * 0.2]], z + 2), 'rgba(40,70,100,0.9)');
+      // stub wings with rocket pods
+      this.poly(this.local(u, [[0.05, L * 0.3], [0.05, L * 0.6], [-0.1, L * 0.6], [-0.1, L * 0.3]], z), '#333');
+      this.poly(this.local(u, [[0.05, -L * 0.3], [0.05, -L * 0.6], [-0.1, -L * 0.6], [-0.1, -L * 0.3]], z), '#333');
+      // main rotor: two blurred blades
+      const hub = this.toScreen(u.x, u.y, z + 7);
+      const spin = u.landed && u.z < 1 ? 0.3 : this.time * 22;
+      ctx.strokeStyle = 'rgba(25,25,25,0.75)'; ctx.lineWidth = 2;
+      for (const a of [spin, spin + Math.PI / 2]) {
+        const rx = Math.cos(a) * L * 1.5 * HALF_W, ry = Math.sin(a) * L * 1.5 * HALF_H;
+        ctx.beginPath(); ctx.moveTo(hub.x - rx, hub.y - ry); ctx.lineTo(hub.x + rx, hub.y + ry); ctx.stroke();
+      }
+      if (!u.landed) {
+        ctx.fillStyle = 'rgba(200,200,200,0.12)';
+        ctx.beginPath(); ctx.ellipse(hub.x, hub.y, L * 1.5 * HALF_W, L * 1.5 * HALF_H, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      return;
+    }
+    if (u.def.look === 'bomber') {
+      // long fuselage, broad straight wings, four engines
+      this.poly(this.local(u, [[L * 0.15, -L * 1.1], [L * 0.3, -L * 1.1], [L * 0.2, L * 1.1], [L * 0.05, L * 1.1]].map(([a, b]) => [a, -b]), z), shade(team, -0.35), edge);
+      this.poly(this.local(u, [[L * 1.0, 0], [L * 0.8, L * 0.12], [-L * 0.9, L * 0.1], [-L * 1.0, 0], [-L * 0.9, -L * 0.1], [L * 0.8, -L * 0.12]], z), shade(team, -0.1), edge);
+      this.poly(this.local(u, [[L * 0.3, 0], [L * 0.1, L * 1.1], [-L * 0.05, L * 1.1], [-L * 0.1, 0], [-L * 0.05, -L * 1.1], [L * 0.1, -L * 1.1]], z + 1), shade(team, -0.2), edge);
+      this.poly(this.local(u, [[-L * 0.8, 0], [-L * 0.95, L * 0.4], [-L * 1.05, L * 0.4], [-L * 1.0, 0], [-L * 1.05, -L * 0.4], [-L * 0.95, -L * 0.4]], z + 1), shade(team, -0.25), edge);
+      for (const sy of [-0.75, -0.4, 0.4, 0.75]) {
+        const e = this.local(u, [[L * 0.2, L * sy]], z)[0];
+        ctx.fillStyle = '#222';
+        ctx.beginPath(); ctx.ellipse(e.x, e.y, 2.5, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      return;
+    }
+    // jet: swept delta wing, twin tail fins, afterburner glow when flying
+    this.poly(this.local(u, [[L * 1.1, 0], [-L * 0.2, L * 0.75], [-L * 0.55, L * 0.75], [-L * 0.75, L * 0.15], [-L * 0.75, -L * 0.15], [-L * 0.55, -L * 0.75], [-L * 0.2, -L * 0.75]], z), shade(team, -0.15), edge);
+    this.poly(this.local(u, [[L * 1.1, 0], [L * 0.2, L * 0.12], [-L * 0.75, L * 0.1], [-L * 0.75, -L * 0.1], [L * 0.2, -L * 0.12]], z + 1.5), shade(team, 0.1), edge);
+    this.poly(this.local(u, [[L * 0.85, 0], [L * 0.5, L * 0.07], [L * 0.35, 0], [L * 0.5, -L * 0.07]], z + 2.5), 'rgba(40,70,100,0.95)');
+    for (const sy of [-0.22, 0.22]) {
+      this.poly(this.local(u, [[-L * 0.45, L * sy], [-L * 0.75, L * sy], [-L * 0.8, L * sy]], z + 8).concat(this.local(u, [[-L * 0.75, L * sy]], z)), shade(team, -0.35), edge);
+    }
+    if (!u.landed && u.z > 10) {
+      const t = this.local(u, [[-L * 0.85, 0]], z + 1)[0];
+      ctx.fillStyle = `rgba(255,170,60,${0.6 + Math.random() * 0.3})`;
+      ctx.beginPath(); ctx.arc(t.x, t.y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  drawWake(u) {
+    if (!u.moving) return;
+    const ctx = this.ctx, L = u.def.size;
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    ctx.strokeStyle = 'rgba(230,240,245,0.55)';
+    ctx.lineWidth = 1.5;
+    for (const side of [-1, 1]) {
+      const a = this.toScreen(u.x - c * L * 0.6 - s * L * 0.3 * side, u.y - s * L * 0.6 + c * L * 0.3 * side, 0);
+      const b = this.toScreen(u.x - c * L * 1.8 - s * L * 0.9 * side, u.y - s * L * 1.8 + c * L * 0.9 * side, 0);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  }
+
+  drawShip(u) {
+    const ctx = this.ctx, team = u.owner.color, L = u.def.size, W = L * 0.36;
+    const edge = 'rgba(0,0,0,0.6)';
+    const look = u.def.look;
+    const hullCol = look === 'battleship' ? '#55585c' : look === 'frigate' ? '#8a9096' : '#6c7176';
+    // waterline hull, then deck
+    const hull = [[L, 0], [L * 0.55, W], [-L * 0.9, W * 0.92], [-L, W * 0.6], [-L, -W * 0.6], [-L * 0.9, -W * 0.92], [L * 0.55, -W]];
+    this.poly(this.local(u, hull, 1), shade(hullCol, -0.35), edge);
+    this.poly(this.local(u, hull.map(([a, b]) => [a * 0.94, b * 0.85]), 5), hullCol, edge);
+    // team-coloured deck stripe
+    this.poly(this.local(u, [[L * 0.5, W * 0.12], [-L * 0.85, W * 0.12], [-L * 0.85, -W * 0.12], [L * 0.5, -W * 0.12]], 5.5), shade(team, -0.2));
+    // superstructure / bridge
+    const bx = look === 'boat' ? -L * 0.15 : -L * 0.05;
+    const br = [[bx + L * 0.22, W * 0.45], [bx - L * 0.25, W * 0.45], [bx - L * 0.25, -W * 0.45], [bx + L * 0.22, -W * 0.45]];
+    const tall = look === 'battleship' ? 16 : look === 'frigate' ? 14 : 10;
+    this.poly(this.local(u, br, tall), shade(hullCol, 0.15), edge);
+    const lw = this.local(u, br, 5), up = this.local(u, br, tall);
+    this.poly([lw[1], lw[2], up[2], up[1]], shade(hullCol, -0.2), edge);
+    this.poly([lw[0], lw[1], up[1], up[0]], shade(hullCol, -0.05), edge);
+    if (look === 'frigate') {
+      // radar mast and missile cells
+      const m1 = this.local(u, [[bx, 0]], tall)[0], m2 = this.local(u, [[bx, 0]], tall + 12)[0];
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
+      ctx.fillStyle = '#ddd';
+      ctx.fillRect(m2.x - 4, m2.y - 1, 8, 2);
+      this.poly(this.local(u, [[L * 0.62, W * 0.35], [L * 0.32, W * 0.35], [L * 0.32, -W * 0.35], [L * 0.62, -W * 0.35]], 6), '#3c4046', edge);
+    }
+    // gun turrets
+    const turretAt = (fx, size) => {
+      const tx = u.x + Math.cos(u.dir) * L * fx, ty = u.y + Math.sin(u.dir) * L * fx;
+      const t = { x: tx, y: ty, turretDir: u.turretDir };
+      const len = size * 0.06;
+      this.gunBarrel(t, 9, len, size > 7 ? 3 : 2, '#2a2a2a', size > 7 ? 0.05 : 0);
+      if (size > 7) this.gunBarrel(t, 9, len, 3, '#2a2a2a', -0.05);
+      const p = this.toScreen(tx, ty, 8);
+      ctx.fillStyle = shade(team, -0.1);
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, size, size * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
+    };
+    if (look === 'battleship') { turretAt(0.6, 9); turretAt(-0.65, 9); }
+    else if (look === 'boat') turretAt(0.5, 5);
+    else if (look !== 'frigate') turretAt(0.5, 6);
   }
 
   quad(x, y, dir, halfL, halfW, z) {
@@ -1025,6 +1294,9 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff3c0';
         ctx.beginPath(); ctx.arc(s.x, s.y, 1.2, 0, Math.PI * 2); ctx.fill();
+      } else if (p.kind === 'bomb') {
+        ctx.fillStyle = '#222';
+        ctx.beginPath(); ctx.ellipse(s.x, s.y, 2, 3.5, 0, 0, Math.PI * 2); ctx.fill();
       } else {
         ctx.fillStyle = '#ffe9a0';
         ctx.beginPath(); ctx.arc(s.x, s.y, 2, 0, Math.PI * 2); ctx.fill();
@@ -1111,6 +1383,17 @@ export class Renderer {
           ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
           break;
         }
+        case 'flak': {
+          // dark smoke puff with a short orange flash
+          const r = 4 + (1 - t) * 8;
+          ctx.fillStyle = `rgba(40,40,40,${t * 0.7})`;
+          ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+          if (t > 0.7) {
+            ctx.fillStyle = `rgba(255,190,80,${(t - 0.7) * 3})`;
+            ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.6, 0, Math.PI * 2); ctx.fill();
+          }
+          break;
+        }
       }
     }
   }
@@ -1139,8 +1422,9 @@ export class Renderer {
   drawShroud() {
     const g = this.g, m = g.map, ctx = this.ctx;
     const S = m.w;
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) {
+    const v = this.visibleTiles();
+    for (let y = v.y0; y <= v.y1; y++) {
+      for (let x = v.x0; x <= v.x1; x++) {
         const i = y * S + x;
         if (g.explored[i]) {
           // soften the shroud edge
@@ -1168,8 +1452,13 @@ export class Renderer {
       const b = this.buildingBounds(e);
       return { x: b.x, y: b.y + 14, w: b.x2 - b.x, h: b.y2 - b.y - 14 };
     }
-    const p = this.toScreen(e.x, e.y);
+    const p = this.toScreen(e.x, e.y, e.isAir ? e.z : 0);
     if (e.isInfantry) return { x: p.x - 7, y: p.y - 19, w: 14, h: 22 };
+    if (e.isNaval) {
+      const s = e.def.size * 40;
+      return { x: p.x - s, y: p.y - s * 0.6 - 10, w: s * 2, h: s * 1.2 + 6 };
+    }
+    if (e.isAir) return { x: p.x - 20, y: p.y - 16, w: 40, h: 26 };
     return { x: p.x - 16, y: p.y - 22, w: 32, h: 30 };
   }
 
@@ -1246,7 +1535,9 @@ export class Renderer {
       for (let y = 0; y < S; y++) {
         for (let x = 0; x < S; x++) {
           const t = m.terrain[m.idx(x, y)];
-          mc.fillStyle = t === WATER ? '#1d4466' : t === ROCK ? '#555149' : '#3d5a2a';
+          const bio = m.biome[m.idx(x, y)];
+          mc.fillStyle = t === WATER ? '#1d4466' : t === ROCK ? (bio === 2 ? '#9aa0a8' : '#555149')
+            : bio === 1 ? '#a8925e' : bio === 2 ? '#d6dbe0' : '#3d5a2a';
           const p = mp(x, y);
           mc.fillRect(p.x - k, p.y, k * 2 + 0.5, k + 0.5);
         }

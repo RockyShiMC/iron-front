@@ -1,6 +1,6 @@
 # Iron Front
 
-A Red Alert 2–style real-time strategy game for the browser. Plain JavaScript (ES modules), HTML5 canvas, zero dependencies, and all graphics are drawn procedurally.
+A classic-style real-time strategy game for the browser. Plain JavaScript (ES modules), HTML5 canvas, zero dependencies, and all graphics are drawn procedurally.
 
 ## Run
 
@@ -22,17 +22,41 @@ Pick a side on the start screen; the AI plays the other one.
 | Harvester | Chrono Miner: teleports back to the refinery, smaller loads | War Miner: armed with a machine gun, big loads, tough |
 | Defenses | Pillbox (anti-infantry), Prism Tower (needs radar) | Sentry Gun (anti-infantry), Tesla Coil (needs radar) |
 
-Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar Tower. Prerequisites refer to *roles* (e.g. `power`), so a Tesla Reactor satisfies them just like a Power Plant does.
+| Air (Airfield) | Hawk Gunship (hovers, rockets), Strike Jet (2 missiles, rearms at the airfield) | Storm Gunship (cannon, tough), Heavy Bomber (4 bombs, rearms) |
+| Navy (Shipyard) | Patrol Boat (fast, anti-air guns), Missile Frigate (long range, anti-air) | Gunboat (armored), Battleship (very long-range shore bombardment) |
+
+Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar Tower, Airfield, Shipyard (built on water), AA Battery. Prerequisites refer to *roles* (e.g. `power`), so a Tesla Reactor satisfies them just like a Power Plant does.
+
+Aircraft can only be hit by anti-air weapons: rifles and machine guns (weakly), rockets, AA Batteries (flak) and the Allied ships.
+
+## Maps and difficulty
+
+| Map | Size | Setup |
+|---|---|---|
+| Random Skirmish | 64×64 | A new noise-generated battlefield each time |
+| World | 120×120 | Europe against East Asia; the Americas, Africa and Australia hold extra ore, reachable by sea or air |
+| China | 96×96 | The western deserts against the east coast, with the Tian Shan, Gobi and the Tibetan plateau in between |
+| Korea | 80×80 | North against south on a mountainous peninsula between two seas |
+| USA | 96×96 | West coast against east coast, across the Rockies and the Great Plains |
+
+The geographic maps are stylized outlines (coastlines, lakes, mountain ranges, deserts, snow) defined as lon/lat polygons in `src/maps.js` and rasterized with north at the top of the screen.
+
+| Enemy | Behavior |
+|---|---|
+| Normal | First attack around 3½ minutes, then a wave roughly every 2 minutes |
+| Hard | Attacks from about 2 minutes and every 75 s, raids your harvesters, harvests 35% more, builds 25% faster, starts with extra credits |
+
+At both levels the AI rebuilds lost structures, keeps all its factories producing, defends its base, uses aircraft and ships, and gets a small credit trickle so it can't stall completely.
 
 ## What else is in it
 
-- An isometric 64×64 map generated from a seed, with water, rock, ore fields and a shroud
+- Isometric maps (random or geographic) with water, rock, desert and snow, ore fields and a shroud
 - Economy: Ore Miners harvest ore and unload at refineries, and ore slowly grows back
 - Power: running low on power halves production speed, takes base defenses offline and disables the radar
-- RA2-style sidebar: Structures / Infantry / Vehicles tabs, build queues of up to 5 units, and building placement within range of your base
+- Sidebar with Base / Infantry / Vehicles / Air / Navy tabs, build queues of up to 5 units, and building placement within range of your base
 - Combat: warhead-vs-armor damage tables (bullet, shell, rocket, electric, prism), turrets that rotate, projectiles, instant Tesla bolts and Prism beams, splash damage, auto-targeting, units that fire back when attacked, and attack-move
 - A* pathfinding with path smoothing, formation moves, and units pushing apart so they don't stack
-- A skirmish AI that follows a build order, keeps its harvesters topped up, defends its base and sends attack waves that grow over time
+- Terrain painted lazily in 8×8-tile chunks, so even the 120×120 World map starts in well under a second
 - Sell, repair, rally points, control groups and a minimap
 - Sound: every effect is synthesized live with the Web Audio API (guns, cannons, rockets, Tesla crackle, Prism hum, explosions, construction, chrono teleports, interface chirps). Battle sounds fade with distance from the screen center and pan left/right
 - Procedural textures: the map is painted per pixel from noise (grass tones, dirt patches, sandy shores with foam, deep/shallow water with glints, rocky ground, faceted boulders, bushes, tufts, flowers); buildings have shaded walls, panel seams, windows, parapets and drop shadows; tanks have rolling treads, two-tier hulls, shaded turrets and muzzle brakes; ore is faceted crystal on stained soil
@@ -43,7 +67,7 @@ Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar
 
 | Input | Action |
 |---|---|
-| Left click | Select / move / attack (RA2 scheme) |
+| Left click | Select / move / attack |
 | Drag | Box select |
 | Right click | Deselect / cancel |
 | Double click | Select all of that type on screen |
@@ -63,7 +87,8 @@ Shared structures: Construction Yard, Ore Refinery, Barracks, War Factory, Radar
 | `src/entities.js` | `Unit` (orders, movement, attack, harvester state machine) and `Building` |
 | `src/player.js` | Credits, power, production queues |
 | `src/ai.js` | Skirmish AI |
-| `src/map.js` | Terrain generation, ore, passability |
+| `src/maps.js` | Map catalog: geographic outlines, mountains, deserts, starts, ore |
+| `src/map.js` | Terrain generation (random and geographic), ore, land/sea/air passability |
 | `src/pathfinding.js` | A* on the tile grid plus line-of-sight smoothing |
 | `src/renderer.js` | Isometric rendering, effects, shroud, minimap |
 | `src/input.js` | Mouse/keyboard, selection, commands |
@@ -74,11 +99,10 @@ The simulation (`game.js` and everything it imports) doesn't touch the DOM, so i
 
 ## Roadmap ideas
 
-- More faction units: Kirov Airship, IFV, Engineer, Spy, Tanya, V3 Launcher
+- Original faction identities and names (replacing the ones inspired by classic games)
 - Music
 - Sprite art (replacing the procedural shapes)
-- Aircraft and naval units, walls, superweapons
-- Engineers capturing buildings, veterancy
+- Walls, superweapons, engineers capturing buildings, veterancy
 - Fog of war (re-hiding areas you can no longer see), not just the shroud
-- More maps, map editor, difficulty levels
+- More maps (Europe, Middle East…), a map editor, 3–4 player games
 - Lockstep multiplayer (the simulation is already separate from rendering)

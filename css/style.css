@@ -63,6 +63,7 @@ html, body {
 
 #tabs { display: flex; gap: 3px; }
 #audio-ctl { display: flex; gap: 4px; }
+#sidebar #tabs button { padding: 5px 0; font-size: 10px; }
 #tabs button, #actions button, #audio-ctl button {
   flex: 1;
   background: var(--panel-2);
@@ -88,7 +89,7 @@ html, body {
 
 .item {
   position: relative;
-  height: 64px;
+  height: 50px;
   background: linear-gradient(160deg, #2c3a42, #182025);
   border: 1px solid var(--edge);
   color: var(--text);
@@ -202,6 +203,32 @@ html, body {
 }
 .panel button:hover { background: #a9341f; }
 .panel h2 { margin: 14px 0 6px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: var(--text); }
+
+.panel.setup { max-width: 620px; max-height: 96vh; overflow-y: auto; }
+.panel.setup h2 { margin: 12px 0 6px; }
+.panel #start { display: block; margin: 14px auto 4px; }
+.maps, .choice { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.panel .maps button, .panel .choice button {
+  margin: 0;
+  padding: 7px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  color: var(--text);
+  font: 12px/1.3 "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.panel .choice button { flex: 1; max-width: 270px; }
+.panel .maps button span, .panel .choice button span { color: var(--muted); font-size: 11px; }
+.panel .maps button:hover, .panel .choice button:hover { background: #2c3a42; }
+.panel .maps button.selected, .panel .choice button.selected { background: #34434c; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#map-desc { min-height: 2.6em; margin: 6px 0 0; }
+.help { margin-top: 10px; text-align: left; color: var(--muted); }
+.help summary { cursor: pointer; text-align: center; }
+.panel .faction.selected { box-shadow: 0 0 0 2px #fff, 0 0 16px rgba(255, 255, 255, 0.35); }
 
 .factions { display: flex; gap: 12px; }
 .panel .faction {

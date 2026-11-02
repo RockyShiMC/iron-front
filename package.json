@@ -1,7 +1,7 @@
 {
   "name": "iron-front",
   "version": "0.1.0",
-  "description": "A Red Alert 2-style real-time strategy game for the browser",
+  "description": "A classic-style real-time strategy game for the browser",
   "private": true,
   "scripts": {
     "start": "node server.js"

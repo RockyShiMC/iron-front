@@ -1,12 +1,13 @@
-import { MAP_SIZE, BUILDINGS, WARHEADS, FACTIONS } from './config.js';
-import { GameMap } from './map.js';
+import { BUILDINGS, WARHEADS, FACTIONS, DIFFICULTY } from './config.js';
+import { GameMap, WATER } from './map.js';
 import { Pathfinder } from './pathfinding.js';
 import { Unit, Building } from './entities.js';
 import { Player, categoryOf } from './player.js';
 import { AI } from './ai.js';
 import { dist, distToEntity } from './util.js';
 
-const FIRE_SOUND = { tracer: 'gun', shell: 'cannon', rocket: 'rocket', bolt: 'tesla', beam: 'prism' };
+const FIRE_SOUND = { tracer: 'gun', shell: 'cannon', rocket: 'rocket', bolt: 'tesla', beam: 'prism', flak: 'flak', bomb: 'bomb' };
+const INSTANT = new Set(['tracer', 'bolt', 'beam', 'flak']);
 
 // Formation slot offsets around a move target, nearest first
 const FORMATION = [];
@@ -14,14 +15,21 @@ for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) FORMATION.push({ x: 
 FORMATION.sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
 
 export class Game {
-  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied' } = {}) {
-    this.map = new GameMap(MAP_SIZE, seed);
+  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal' } = {}) {
+    this.map = new GameMap(map, seed);
     this.pathfinder = new Pathfinder(this.map);
     this.players = [
       new Player(0, faction, false),
       new Player(1, faction === 'allied' ? 'soviet' : 'allied', true),
     ];
     this.human = this.players[0];
+    this.difficulty = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+    for (const p of this.players) {
+      if (!p.isAI) continue;
+      p.incomeMult = this.difficulty.income;
+      p.buildMult = this.difficulty.build;
+      p.credits += this.difficulty.bonusCredits;
+    }
     this.units = [];
     this.buildings = [];
     this.projectiles = [];
@@ -73,12 +81,19 @@ export class Game {
     owner.recount(this);
     // Units caught under a new footprint get nudged out
     for (const u of this.units) {
+      if (u.isAir) continue;
       if (this.map.buildingAt[this.map.idx(Math.floor(u.x), Math.floor(u.y))] === b) {
-        const p = this.map.nearestPassable(Math.floor(u.x), Math.floor(u.y));
+        const p = this.map.nearestPassable(Math.floor(u.x), Math.floor(u.y), Math.floor(u.x), Math.floor(u.y), u.domain);
         if (p) { u.x = p.x + 0.5; u.y = p.y + 0.5; u.path = []; }
       }
     }
     return b;
+  }
+
+  // Can this weapon hit this target? Aircraft need anti-air; flak can't hit the ground.
+  canHit(w, t) {
+    if (!w) return false;
+    return t.isUnit && t.isAir ? !!w.air : w.ground !== false;
   }
 
   removeBuilding(b) {
@@ -102,8 +117,9 @@ export class Game {
     return best;
   }
 
-  exitPoint(b) {
-    const p = this.map.nearestPassable(b.tx + Math.floor(b.w / 2), b.ty + b.h) || { x: b.tx, y: b.ty + b.h };
+  exitPoint(b, domain = 'land') {
+    const ex = b.tx + Math.floor(b.w / 2), ey = b.ty + b.h;
+    const p = this.map.nearestPassable(ex, ey, ex, ey, domain) || { x: b.tx, y: b.ty + b.h };
     return { x: p.x + 0.5, y: p.y + 0.5 };
   }
 
@@ -114,11 +130,14 @@ export class Game {
   spawnUnit(owner, key) {
     const prod = owner.producerFor(categoryOf(key), this);
     if (!prod) return null;
-    const p = this.exitPoint(prod);
+    const domain = categoryOf(key) === 'naval' ? 'sea' : 'land';
+    const p = categoryOf(key) === 'air' ? { x: prod.x, y: prod.y } : this.exitPoint(prod, domain);
     const u = this.addUnit(owner, key, p.x, p.y);
     u.dir = Math.PI / 2;
     if (u.def.harvester) {
       u.orderHarvest(this);
+    } else if (u.ammo !== Infinity) {
+      u.orderRearm(this); // jets park on the airfield until ordered out
     } else {
       const r = prod.rally || owner.rally || { x: p.x + 0.5 + Math.random(), y: p.y + 1.5 + Math.random() };
       u.orderMove(this, r.x, r.y);
@@ -129,9 +148,12 @@ export class Game {
   // ---------- building placement ----------
   canPlace(owner, key, tx, ty) {
     const def = BUILDINGS[key];
+    const m = this.map;
     for (let y = ty; y < ty + def.h; y++) {
       for (let x = tx; x < tx + def.w; x++) {
-        if (!this.map.isBuildable(x, y)) return false;
+        // shipyards go on open water, everything else on clear land
+        const ok = def.naval ? m.inBounds(x, y) && m.terrain[m.idx(x, y)] === WATER && !m.buildingAt[m.idx(x, y)] : m.isBuildable(x, y);
+        if (!ok) return false;
       }
     }
     for (const u of this.units) {
@@ -176,13 +198,13 @@ export class Game {
   // ---------- orders ----------
   groupOrder(units, x, y, type = 'move') {
     const sorted = [...units].sort((a, b) => dist(a.x, a.y, x, y) - dist(b.x, b.y, x, y));
-    let slot = 0;
+    const slot = { land: 0, sea: 0, air: 0 }; // each domain fills its own formation
     for (const u of sorted) {
       let sx = x, sy = y;
-      while (slot < FORMATION.length) {
-        const f = FORMATION[slot++];
-        const px = x + f.x, py = y + f.y;
-        if (this.map.isPassable(Math.floor(px), Math.floor(py))) { sx = px; sy = py; break; }
+      while (slot[u.domain] < FORMATION.length) {
+        const f = FORMATION[slot[u.domain]++];
+        const px = x + f.x * (u.isNaval ? 1.6 : 1), py = y + f.y * (u.isNaval ? 1.6 : 1);
+        if (this.map.passable(u.domain, Math.floor(px), Math.floor(py))) { sx = px; sy = py; break; }
       }
       if (type === 'attackmove') u.orderAttackMove(this, sx, sy);
       else u.orderMove(this, sx, sy);
@@ -230,12 +252,13 @@ export class Game {
   // ---------- combat ----------
   findTarget(e, range) {
     let best = null, bd = Infinity;
+    const w = e.weapon;
     for (const u of this.units) {
-      if (u.dead || u.owner === e.owner) continue;
+      if (u.dead || u.owner === e.owner || !this.canHit(w, u)) continue;
       const d = dist(e.x, e.y, u.x, u.y);
       if (d <= range && d < bd) { bd = d; best = u; }
     }
-    if (best) return best;
+    if (best || w.ground === false) return best;
     for (const b of this.buildings) {
       if (b.dead || b.owner === e.owner) continue;
       const d = distToEntity(e.x, e.y, b);
@@ -252,14 +275,24 @@ export class Game {
     const reach = shooter.isInfantry ? 0.2 : shooter.isBuilding ? 0.45 : 0.5;
     const sx = shooter.x + Math.cos(aim) * reach;
     const sy = shooter.y + Math.sin(aim) * reach;
-    const sz = shooter.isBuilding ? shooter.def.height + 6 : shooter.isInfantry ? 9 : shooter.def.look === 'prism' ? 18 : 12;
-    const tz = target.isBuilding ? target.def.height * 0.6 : target.isInfantry ? 6 : 8;
+    const sz = shooter.isBuilding ? shooter.def.height + 6
+      : shooter.isAir ? shooter.z - 2
+      : shooter.isInfantry ? 9 : shooter.def.look === 'prism' ? 18 : 12;
+    const tz = this.targetHeight(target);
     const kind = w.projectile;
+    if (shooter.ammo !== undefined && shooter.ammo !== Infinity) shooter.ammo--;
     this.sound(FIRE_SOUND[kind], sx, sy);
     const flashColor = kind === 'bolt' ? '140,200,255' : kind === 'beam' ? '200,240,255' : '255,230,140';
-    this.effects.push({ type: 'flash', x: sx, y: sy, z: sz, life: 0.1, max: 0.1, size: kind === 'tracer' ? 4 : 9, color: flashColor });
+    if (kind !== 'bomb') this.effects.push({ type: 'flash', x: sx, y: sy, z: sz, life: 0.1, max: 0.1, size: kind === 'tracer' ? 4 : 9, color: flashColor });
 
-    if (kind === 'tracer' || kind === 'bolt' || kind === 'beam') {
+    if (INSTANT.has(kind)) {
+      if (kind === 'flak') {
+        // shells burst around the aircraft
+        const jx = (Math.random() - 0.5) * 0.5, jy = (Math.random() - 0.5) * 0.5;
+        this.effects.push({ type: 'flak', x: c.x + jx, y: c.y + jy, z: tz + (Math.random() - 0.3) * 10, life: 0.5, max: 0.5 });
+        this.hit(target, w, shooter, c.x, c.y);
+        return;
+      }
       const jx = kind === 'tracer' ? (Math.random() - 0.5) * 0.2 : 0, jy = kind === 'tracer' ? (Math.random() - 0.5) * 0.2 : 0;
       const life = kind === 'tracer' ? 0.07 : kind === 'bolt' ? 0.25 : 0.35;
       this.effects.push({ type: kind, x: sx, y: sy, z: sz, x2: c.x + jx, y2: c.y + jy, z2: tz, life, max: life });
@@ -276,10 +309,19 @@ export class Game {
       const d = dist(sx, sy, c.x, c.y);
       this.projectiles.push({
         kind, x: sx + ox, y: sy + oy, z: sz, sx: sx + ox, sy: sy + oy, sz, tx: c.x, ty: c.y, tz,
-        t: -n * 0.08, dur: Math.max(0.05, d / w.speed), arc: kind === 'shell' ? d * 3 : d * 1.5,
+        t: -n * 0.08, dur: Math.max(0.05, d / w.speed),
+        // shells lob, rockets curve a little; anything fired from the air flies straight
+        arc: shooter.isAir || target.isAir ? 0 : kind === 'shell' ? d * 3 : d * 1.5,
         target, weapon: w, attacker: shooter,
       });
     }
+  }
+
+  // Where shots aim on a target, in screen pixels above the ground
+  targetHeight(t) {
+    if (t.isBuilding) return t.def.height * 0.6;
+    if (t.isAir) return t.z + 4;
+    return t.isInfantry ? 6 : 8;
   }
 
   // Apply a weapon hit at (x, y), including splash damage to nearby enemies.
@@ -316,7 +358,8 @@ export class Game {
       if (e.owner === this.human) this.notify('Structure lost', 'alert');
     } else {
       if (e.def.harvester) this.releaseOre(e);
-      this.spawnExplosion(e.x, e.y, e.isInfantry ? 0.25 : 0.7, !e.isInfantry);
+      // aircraft crash to the ground; ships and vehicles burst in place
+      this.spawnExplosion(e.x, e.y, e.isInfantry ? 0.25 : e.isNaval ? 0.9 : 0.7, !e.isInfantry);
       if (e.owner === this.human) this.notify('Unit lost', 'warn', 4);
     }
   }
@@ -357,6 +400,8 @@ export class Game {
     this.time += dt;
 
     for (const p of this.players) p.updateProduction(dt, this);
+    // A small trickle keeps the AI from stalling for good if its economy is wiped out
+    for (const ai of this.ais) ai.p.credits += this.difficulty.trickle * dt;
     for (const ai of this.ais) ai.update(dt);
     for (const b of this.buildings) if (!b.dead) b.update(dt, this);
     for (const u of this.units) if (!u.dead) u.update(dt, this);
@@ -380,6 +425,7 @@ export class Game {
       const a = us[i];
       for (let j = i + 1; j < us.length; j++) {
         const b = us[j];
+        if (a.domain !== b.domain) continue; // aircraft pass over ground units, ships over nothing
         const dx = b.x - a.x, dy = b.y - a.y;
         const min = a.radius + b.radius;
         if (Math.abs(dx) > min || Math.abs(dy) > min) continue;
@@ -397,12 +443,16 @@ export class Game {
 
   nudge(u, dx, dy) {
     const nx = u.x + dx, ny = u.y + dy;
-    if (this.map.isPassable(Math.floor(nx), Math.floor(ny))) { u.x = nx; u.y = ny; }
+    if (this.map.passable(u.domain, Math.floor(nx), Math.floor(ny))) { u.x = nx; u.y = ny; }
   }
 
   updateProjectiles(dt) {
     for (const p of this.projectiles) {
-      if (!p.target.dead) { const c = this.entityCenter(p.target); p.tx = c.x; p.ty = c.y; }
+      if (!p.target.dead) {
+        const c = this.entityCenter(p.target);
+        p.tx = c.x; p.ty = c.y;
+        if (p.target.isAir) p.tz = this.targetHeight(p.target);
+      }
       p.t += dt;
       const f = Math.max(0, Math.min(1, p.t / p.dur));
       p.x = p.sx + (p.tx - p.sx) * f;

@@ -54,6 +54,14 @@ export class Unit extends Entity {
     this.stuckTimer = 0;
     this.lastX = x;
     this.lastY = y;
+    // 'land' | 'sea' | 'air'. Aircraft start parked on their airfield.
+    this.domain = this.def.domain || 'land';
+    this.isAir = this.domain === 'air';
+    this.isNaval = this.domain === 'sea';
+    this.z = 0;
+    this.landed = this.isAir;
+    this.ammo = this.def.ammo ?? Infinity;
+    this.reloadTimer = 0;
     if (this.def.harvester) {
       this.cargo = 0;
       this.hstate = 'seek';
@@ -82,7 +90,8 @@ export class Unit extends Entity {
   }
 
   orderAttack(g, target, extra = {}) {
-    if (!this.weapon) return;
+    if (!this.weapon || !g.canHit(this.weapon, target)) return;
+    if (this.ammo <= 0) return this.orderRearm(g);
     this.order = { type: 'attack', target, ...extra };
     this.target = target;
     this.path = [];
@@ -113,8 +122,27 @@ export class Unit extends Entity {
     this.path = [];
   }
 
+  // Jets fly back to an airfield, land and reload their ammo
+  orderRearm(g) {
+    const field = g.nearestBuilding(this.owner, 'airfield', this.x, this.y);
+    if (!field) { this.orderStop(); return; }
+    // spread parked aircraft over the airfield
+    const slot = this.id % 4;
+    const px = field.tx + 0.8 + (slot % 2) * 1.4, py = field.ty + 0.8 + Math.floor(slot / 2) * 1.4;
+    this.order = { type: 'rearm', field, x: px, y: py };
+    this.target = null;
+    this.setPath(g, px, py);
+  }
+
   setPath(g, x, y) {
-    this.path = g.pathfinder.find(this.x, this.y, x, y) || [];
+    if (this.isAir) {
+      // aircraft fly in a straight line, anywhere on the map
+      const S = g.map.w;
+      this.path = [{ x: Math.min(S - 0.5, Math.max(0.5, x)), y: Math.min(S - 0.5, Math.max(0.5, y)) }];
+      this.landed = false;
+    } else {
+      this.path = g.pathfinder.find(this.x, this.y, x, y, 20000, this.domain) || [];
+    }
     this.stuckTimer = 0;
     this.lastX = this.x;
     this.lastY = this.y;
@@ -125,10 +153,14 @@ export class Unit extends Entity {
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.def.selfHeal && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + this.def.selfHeal * dt);
     this.moving = false;
+    if (this.isAir) this.updateFlight(dt, g);
     const o = this.order;
     switch (o.type) {
       case 'idle':
         this.scan(dt, g);
+        break;
+      case 'rearm':
+        this.updateRearm(dt, g, o);
         break;
       case 'move':
         if (this.followPath(dt, g)) this.order = { type: 'idle' };
@@ -148,9 +180,34 @@ export class Unit extends Entity {
     if (this.def.turret && !this.target) this.turretDir = turnToward(this.turretDir, this.dir, 3 * dt);
   }
 
+  // Climb / descend, and send jets home when they are empty or idle away from base
+  updateFlight(dt, g) {
+    const cruise = this.def.look === 'heli' ? 34 : 46;
+    const want = this.landed ? 0 : cruise;
+    this.z += Math.sign(want - this.z) * Math.min(Math.abs(want - this.z), 45 * dt);
+    if (this.ammo !== Infinity && this.order.type !== 'rearm') {
+      const idleAway = this.order.type === 'idle' && !this.landed && this.ammo < this.def.ammo;
+      if (this.ammo <= 0 || idleAway) this.orderRearm(g);
+    }
+  }
+
+  updateRearm(dt, g, o) {
+    if (o.field.dead || o.field.owner !== this.owner) { this.orderRearm(g); return; }
+    if (!this.followPath(dt, g)) return;
+    this.landed = true;
+    if (this.z > 1) return;
+    this.reloadTimer += dt;
+    if (this.reloadTimer >= 1.5) {
+      this.reloadTimer = 0;
+      this.ammo = Math.min(this.def.ammo, this.ammo + 1);
+      if (this.ammo >= this.def.ammo) this.order = { type: 'idle' };
+    }
+  }
+
   // Look for enemies nearby; switch to an automatic attack that resumes the current order.
   scan(dt, g) {
     if (!this.weapon) return;
+    if (this.landed || this.ammo <= 0) return; // parked jets wait for orders
     this.scanTimer -= dt;
     if (this.scanTimer > 0) return;
     this.scanTimer = 0.4;
@@ -227,6 +284,16 @@ export class Unit extends Entity {
     }
     const ang = Math.atan2(dy, dx);
     let speed = this.def.speed;
+    if (this.isAir) {
+      // aircraft bank around quickly and never collide with anything
+      this.dir = turnToward(this.dir, ang, 4 * dt);
+      const s = Math.min(speed * dt, d);
+      this.x += (dx / d) * s;
+      this.y += (dy / d) * s;
+      this.moving = true;
+      this.anim += dt * speed * 5;
+      return false;
+    }
     if (this.isInfantry) {
       this.dir = ang;
     } else {
@@ -237,7 +304,7 @@ export class Unit extends Entity {
     const s = Math.min(speed * dt, d);
     const nx = this.x + (dx / d) * s, ny = this.y + (dy / d) * s;
     const sameTile = Math.floor(nx) === Math.floor(this.x) && Math.floor(ny) === Math.floor(this.y);
-    if (sameTile || g.map.isPassable(Math.floor(nx), Math.floor(ny))) {
+    if (sameTile || g.map.passable(this.domain, Math.floor(nx), Math.floor(ny))) {
       this.x = nx;
       this.y = ny;
     } else {
@@ -342,7 +409,7 @@ export class Unit extends Entity {
       case 'unload': {
         const amt = Math.min(this.cargo, 400 * dt);
         this.cargo -= amt;
-        this.owner.credits += amt;
+        this.owner.credits += amt * this.owner.incomeMult;
         if (this.cargo <= 0.01) {
           this.cargo = 0;
           this.hstate = 'seek';

@@ -22,7 +22,7 @@
     </div>
     <div id="audio-ctl">
       <button id="btn-sfx" title="Toggle sound effects (M)">Sound: On</button>
-      <button id="btn-voice" title="Toggle EVA voice (V)">EVA: On</button>
+      <button id="btn-voice" title="Toggle announcer voice (V)">EVA: On</button>
       <button id="btn-units" title="Toggle unit voices (U)">Units: On</button>
     </div>
     <div id="selinfo"></div>
@@ -32,9 +32,36 @@
   <div id="paused">PAUSED — press P to resume</div>
 
   <div id="overlay">
-    <div class="panel">
+    <div class="panel setup">
       <h1>Iron Front</h1>
-      <p class="sub">A Red Alert 2–style skirmish. Build a base, mine ore, destroy the enemy.</p>
+      <p class="sub">A classic real-time strategy skirmish. Build a base, mine ore, rule land, sea and air.</p>
+
+      <h2>Side</h2>
+      <div class="factions">
+        <button class="faction allied selected" data-faction="allied">
+          <span class="fname">Allies</span>
+          <span class="fdesc">Fast and high-tech: Prism weapons, Strike Jets, Missile Frigates, teleporting miners</span>
+        </button>
+        <button class="faction soviet" data-faction="soviet">
+          <span class="fname">Soviets</span>
+          <span class="fdesc">Heavy armor and Tesla tech: Apocalypse Tanks, Heavy Bombers, Battleships, armed miners</span>
+        </button>
+      </div>
+
+      <h2>Battlefield</h2>
+      <div class="maps" id="map-list"></div>
+      <p class="sub" id="map-desc"></p>
+
+      <h2>Enemy</h2>
+      <div class="choice" id="difficulty">
+        <button data-difficulty="normal" class="selected"><b>Normal</b><span>Attacks from about 3½ minutes, steady pressure</span></button>
+        <button data-difficulty="hard"><b>Hard</b><span>Attacks early and often, raids your miners, earns and builds faster</span></button>
+      </div>
+
+      <button id="start">Start battle</button>
+
+      <details class="help">
+        <summary>Controls</summary>
       <table class="controls">
         <tr><td>Left click</td><td>Select / move / attack</td></tr>
         <tr><td>Drag</td><td>Box select units</td></tr>
@@ -47,20 +74,12 @@
         <tr><td>H</td><td>Jump to base</td></tr>
         <tr><td>Arrows / screen edge / middle drag</td><td>Scroll</td></tr>
         <tr><td>P</td><td>Pause</td></tr>
-        <tr><td>M / V / U</td><td>Toggle sound effects / EVA / unit voices</td></tr>
+        <tr><td>M / V / U</td><td>Toggle sound effects / announcer / unit voices</td></tr>
       </table>
-      <p class="sub">Tip: Power → Ore Refinery → Barracks → War Factory → Radar unlocks advanced units and defenses.</p>
-      <h2>Choose your side</h2>
-      <div class="factions">
-        <button class="faction allied" data-faction="allied">
-          <span class="fname">Allies</span>
-          <span class="fdesc">Grizzly&nbsp;Tank · Prism&nbsp;Tank · Guardian&nbsp;GI · Prism&nbsp;Tower · Chrono&nbsp;Miner (teleports&nbsp;home)</span>
-        </button>
-        <button class="faction soviet" data-faction="soviet">
-          <span class="fname">Soviets</span>
-          <span class="fdesc">Rhino&nbsp;Tank · Apocalypse&nbsp;Tank · Tesla&nbsp;Trooper · Tesla&nbsp;Coil · War&nbsp;Miner (armed)</span>
-        </button>
-      </div>
+      <p class="sub">Build order: Power → Ore Refinery → Barracks → War Factory → Radar. Radar unlocks the Airfield;
+        a Refinery unlocks the Shipyard (build it on water). Aircraft can only be hit by anti-air: rifles, rockets,
+        AA Batteries and some ships. Jets return to an Airfield to rearm.</p>
+      </details>
     </div>
   </div>
 

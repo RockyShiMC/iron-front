@@ -3,24 +3,28 @@ import { dist } from './util.js';
 
 // Build order by role; each faction maps roles to its own buildings
 const BUILD_ORDER = [
-  'power', 'refinery', 'barracks', 'power', 'factory', 'defense', 'radar',
-  'power', 'refinery', 'advDefense', 'power', 'defense', 'advDefense',
+  'power', 'refinery', 'barracks', 'power', 'factory', 'defense', 'radar', 'refinery', 'power',
+  'airfield', 'aaDefense', 'shipyard', 'advDefense', 'power', 'defense', 'advDefense', 'aaDefense',
 ];
-const FIRST_ATTACK = 240; // seconds of peace before the first wave
 
-// A simple skirmish AI: follows a build order, keeps harvesters up,
-// trains a mixed army, defends its base and sends growing attack waves.
+// A skirmish AI that builds up quickly, keeps every factory busy, defends its
+// base, and attacks on a timer instead of waiting for a perfect army.
 export class AI {
   constructor(g, player) {
     this.g = g;
     this.p = player;
+    this.d = g.difficulty;
     this.timer = 2;
-    this.waveSize = 6;
     this.attacking = new Set();
+    this.waveCount = 0;
+    this.waveSize = this.d.waveMin;
+    this.lastWave = 0;
+    this.lastRaid = 0;
+    this.unplaceable = new Set(); // e.g. a shipyard with no water nearby
     const cy = this.conyard();
     const c = g.map.w / 2;
     if (cy) {
-      const d = Math.hypot(c - cy.x, c - cy.y);
+      const d = Math.hypot(c - cy.x, c - cy.y) || 1;
       player.rally = { x: cy.x + ((c - cy.x) / d) * 5, y: cy.y + ((c - cy.y) / d) * 5 };
     }
   }
@@ -29,125 +33,222 @@ export class AI {
     return this.g.buildings.find((b) => b.owner === this.p && b.key === 'conyard');
   }
 
+  tab(id) {
+    return FACTIONS[this.p.faction].tabs.find((t) => t.id === id).items;
+  }
+
   update(dt) {
     this.timer -= dt;
     if (this.timer > 0) return;
-    this.timer = 1;
-    this.think();
+    this.timer = this.d.think;
+    for (const u of this.attacking) if (u.dead) this.attacking.delete(u);
+    this.build();
+    this.produce();
+    this.defend();
+    this.attack();
+    this.raid();
+    this.useJets();
+    this.useNavy();
   }
 
-  think() {
+  // ---------- base building ----------
+  build() {
     const g = this.g, p = this.p;
-
-    // --- base building ---
     const bq = p.queues.building;
     if (bq.length && bq[0].ready) {
-      const spot = this.findSpot(bq[0].key);
-      if (spot) g.placeBuilding(p, bq[0].key, spot.x, spot.y);
-      else p.cancel(bq[0].key);
+      const key = bq[0].key;
+      const spot = this.findSpot(key);
+      if (spot) g.placeBuilding(p, key, spot.x, spot.y);
+      else { p.cancel(key); this.unplaceable.add(key); }
     }
     if (!bq.length) {
       const next = this.nextBuilding();
       if (next) p.enqueue(next, g);
     }
-
-    // --- production ---
-    const fac = FACTIONS[p.faction];
-    const harvKey = fac.harvester;
-    const [basicInf, advInf] = fac.tabs[1].items;
-    const [basicVeh, advVeh] = fac.tabs[2].items;
-    const mine = g.units.filter((u) => u.owner === p);
-    const harvesters = mine.filter((u) => u.def.harvester).length;
-    const wantHarv = Math.min(4, (p.counts.refinery || 0) + 1);
-    const vq = p.queues.vehicle, iq = p.queues.infantry;
-    // Economy first: while short on harvesters, don't spend on the army
-    const needHarv = p.has('refinery') && harvesters < wantHarv;
-    if (needHarv && p.has('factory')) {
-      for (const it of [...iq, ...vq]) if (it.key !== harvKey && it.progress === 0) p.cancel(it.key);
-      if (!vq.some((i) => i.key === harvKey)) p.enqueue(harvKey, g);
-    } else if (!needHarv) {
-      if (p.has('factory') && vq.length < 2 && p.credits > 900) {
-        p.enqueue(p.canBuild(advVeh, g) && Math.random() < 0.4 ? advVeh : basicVeh, g);
-      }
-      if (p.has('barracks') && iq.length < 2 && p.credits > 400) {
-        p.enqueue(p.canBuild(advInf, g) && Math.random() < 0.4 ? advInf : basicInf, g);
-      }
-    }
-
-    // --- defense ---
-    for (const u of this.attacking) if (u.dead) this.attacking.delete(u);
-    const army = mine.filter((u) => u.weapon && !u.def.harvester && !this.attacking.has(u));
-    const hurt = g.buildings.find((b) => b.owner === p && g.time - b.lastAttacked < 5 && b.lastAttacker && !b.lastAttacker.dead);
-    if (hurt) {
-      for (const u of army) if (u.order.type !== 'attack') u.orderAttack(g, hurt.lastAttacker);
-    }
-
-    // --- attack waves ---
-    const ready = army.filter((u) => u.order.type === 'idle');
-    if (g.time > FIRST_ATTACK && ready.length >= this.waveSize) {
-      const t = this.pickTarget();
-      if (t) {
-        for (const u of ready) this.attacking.add(u);
-        g.groupOrder(ready, t.x, t.y, 'attackmove');
-        this.waveSize = Math.min(this.waveSize + 2, 16);
-      }
-    }
-    // Attackers that reached their destination push on to the next target
-    for (const u of this.attacking) {
-      if (u.order.type !== 'idle') continue;
-      const t = this.pickTarget(u);
-      if (t) u.orderAttackMove(g, t.x + Math.random() - 0.5, t.y + Math.random() - 0.5);
-    }
-  }
-
-  pickTarget(from) {
-    const g = this.g;
-    const o = from || this.conyard() || this.p.rally || { x: g.map.w / 2, y: g.map.h / 2 };
-    let best = null, bd = Infinity;
-    for (const b of g.buildings) {
-      if (b.owner === this.p) continue;
-      const d = dist(o.x, o.y, b.x, b.y);
-      if (d < bd) { bd = d; best = b; }
-    }
-    if (best) return { x: best.x, y: best.y + best.h / 2 + 0.5 };
-    for (const u of g.units) {
-      if (u.owner === this.p) continue;
-      const d = dist(o.x, o.y, u.x, u.y);
-      if (d < bd) { bd = d; best = u; }
-    }
-    return best && { x: best.x, y: best.y };
   }
 
   nextBuilding() {
     const g = this.g, p = this.p;
+    const ok = (k) => k && !this.unplaceable.has(k) && !(BUILDINGS[k].naval && !g.map.hasWater);
     const power = keyForRole(p.faction, 'power');
     if (p.lowPower() && p.canBuild(power, g)) return power;
     const tally = {};
     for (const role of BUILD_ORDER) {
       const key = keyForRole(p.faction, role);
+      if (!ok(key)) continue;
       tally[key] = (tally[key] || 0) + 1;
-      if ((p.counts[key] || 0) < tally[key]) return p.canBuild(key, g) ? key : null;
+      if ((p.counts[key] || 0) < tally[key]) {
+        if (p.canBuild(key, g)) return key;
+        continue; // prerequisite missing: try the next item rather than stalling
+      }
     }
     if (p.powerOut - p.powerUse < 40) return power;
-    const defense = keyForRole(p.faction, p.has('radar') && Math.random() < 0.5 ? 'advDefense' : 'defense');
-    if (p.credits > 2500 && (p.counts.defense || 0) + (p.counts.advDefense || 0) < 8) return defense;
+    const def = keyForRole(p.faction, Math.random() < 0.5 ? 'advDefense' : 'defense');
+    if (p.credits > 2500 && (p.counts.defense || 0) + (p.counts.advDefense || 0) < 10 && p.canBuild(def, g)) return def;
     return null;
   }
 
+  // ---------- production ----------
+  produce() {
+    const g = this.g, p = this.p;
+    const harvKey = FACTIONS[p.faction].harvester;
+    const mine = g.units.filter((u) => u.owner === p);
+    const harvesters = mine.filter((u) => u.def.harvester).length;
+    const wantHarv = Math.min(5, (p.counts.refinery || 0) + 1);
+    const needHarv = p.has('refinery') && harvesters < wantHarv;
+    const q = p.queues;
+
+    if (needHarv && p.has('factory') && !q.vehicle.some((i) => i.key === harvKey)) {
+      // when broke, drop unstarted army orders so the harvester gets the money
+      if (p.credits < 300) for (const it of [...q.infantry, ...q.vehicle]) if (it.key !== harvKey && it.progress === 0) p.cancel(it.key);
+      p.enqueue(harvKey, g);
+    }
+    const reserve = needHarv ? 900 : 0;
+    const spare = p.credits - reserve;
+    const pick = (items) => {
+      const [basic, adv] = items;
+      return adv && p.canBuild(adv, g) && Math.random() < 0.4 ? adv : basic;
+    };
+    // Aim for a mixed force: infantry can't outnumber vehicles by too much, and
+    // air / navy get a fixed share once their factories exist
+    const count = (cat) => mine.filter((u) => u.def.category === cat && !u.def.harvester).length;
+    const inf = count('infantry'), veh = count('vehicle'), air = count('air'), sea = count('naval');
+    const ground = inf + veh;
+    const share = this.d.airNavyShare;
+    if (p.has('airfield') && q.air.length < 1 && air < 2 + ground * share * 0.5 && spare > 200) {
+      const items = this.tab('air');
+      p.enqueue(items[Math.floor(Math.random() * items.length)], g);
+    }
+    if (p.has('shipyard') && q.naval.length < 1 && sea < 1 + ground * share * 0.4 && spare > 200) p.enqueue(pick(this.tab('naval')), g);
+    const vehicles = this.tab('vehicle').filter((k) => k !== harvKey);
+    if (p.has('factory') && q.vehicle.filter((i) => i.key !== harvKey).length < 2 && spare > 500) p.enqueue(pick(vehicles), g);
+    const infantryCap = p.has('factory') ? veh * 1.5 + 5 : 12;
+    if (p.has('barracks') && q.infantry.length < 2 && inf < infantryCap && spare > 150) p.enqueue(pick(this.tab('infantry')), g);
+  }
+
+  // Ground units and gunships that fight in attack waves
+  army() {
+    return this.g.units.filter((u) => u.owner === this.p && u.weapon && !u.def.harvester && !u.isNaval && u.ammo === Infinity);
+  }
+
+  // ---------- defense ----------
+  defend() {
+    const g = this.g, p = this.p;
+    const hurt = g.buildings.find((b) => b.owner === p && g.time - b.lastAttacked < 6 && b.lastAttacker && !b.lastAttacker.dead);
+    if (!hurt) return;
+    const enemy = hurt.lastAttacker;
+    for (const u of this.army()) {
+      if (this.attacking.has(u) || u.order.type === 'attack') continue;
+      if (dist(u.x, u.y, hurt.x, hurt.y) < 25) u.orderAttack(g, enemy);
+    }
+  }
+
+  // ---------- attack waves ----------
+  attack() {
+    const g = this.g, d = this.d;
+    const ready = this.army().filter((u) => !this.attacking.has(u) && (u.order.type === 'idle' || (u.order.type === 'move' && !u.order.auto)));
+    const sinceWave = g.time - this.lastWave;
+    const due = g.time > d.firstAttack && (ready.length >= this.waveSize || (sinceWave > d.waveEvery && ready.length >= 3));
+    if (due) {
+      const t = this.pickTarget(this.conyard() || this.p.rally);
+      if (t) {
+        for (const u of ready) { this.attacking.add(u); u.aiRetarget = g.time + 6; }
+        g.groupOrder(ready, t.x, t.y, 'attackmove');
+        this.lastWave = g.time;
+        this.waveCount++;
+        this.waveSize = Math.min(d.waveMin + this.waveCount * 2, d.maxWave);
+      }
+    }
+    // Attackers that ran out of things to shoot push on to the next target
+    for (const u of this.attacking) {
+      if (u.order.type !== 'idle' || g.time < (u.aiRetarget || 0)) continue;
+      u.aiRetarget = g.time + 8; // don't re-path every second if the target is unreachable
+      const t = this.pickTarget(u);
+      if (t) u.orderAttackMove(g, t.x + Math.random() - 0.5, t.y + Math.random() - 0.5);
+    }
+  }
+
+  // Hard AI: small fast groups go after your harvesters
+  raid() {
+    const g = this.g;
+    if (!this.d.raids || g.time < this.d.firstAttack - 30 || g.time - this.lastRaid < 70) return;
+    const prey = this.nearestEnemy(this.p.rally || this.conyard(), (e) => e.isUnit && e.def.harvester);
+    if (!prey) return;
+    const fast = this.army().filter((u) => !this.attacking.has(u) && u.def.speed >= 1.8).slice(0, 3);
+    if (fast.length < 2) return;
+    this.lastRaid = g.time;
+    for (const u of fast) { this.attacking.add(u); u.aiRetarget = g.time + 10; u.orderAttack(g, prey); }
+  }
+
+  // Jets sortie from the airfield whenever they are loaded
+  useJets() {
+    const g = this.g;
+    if (g.time < this.d.firstAttack * 0.7) return;
+    for (const u of g.units) {
+      if (u.owner !== this.p || u.ammo === Infinity || !u.landed || u.ammo < u.def.ammo || u.order.type !== 'idle') continue;
+      const t = Math.random() < 0.5
+        ? this.nearestEnemy(u, (e) => e.isUnit && !e.isAir && (e.def.harvester || e.def.category === 'vehicle'))
+        : this.nearestEnemy(u, (e) => e.isBuilding);
+      if (t) u.orderAttack(g, t);
+    }
+  }
+
+  // Ships gather, then sail at the nearest enemy structure and shell it from the water
+  useNavy() {
+    const g = this.g;
+    const idle = g.units.filter((u) => u.owner === this.p && u.isNaval && u.order.type === 'idle' && g.time >= (u.aiRetarget || 0));
+    if (idle.length < (this.d.raids ? 1 : 2) || g.time < this.d.firstAttack * 0.8) return;
+    const t = this.nearestEnemy(idle[0], (e) => e.isBuilding) || this.nearestEnemy(idle[0], () => true);
+    if (!t) return;
+    for (const u of idle) u.aiRetarget = g.time + 12;
+    g.groupOrder(idle, t.x, t.y, 'attackmove');
+  }
+
+  nearestEnemy(from, filter) {
+    if (!from) return null;
+    let best = null, bd = Infinity;
+    for (const list of [this.g.buildings, this.g.units]) {
+      for (const e of list) {
+        if (e.dead || e.owner === this.p || !filter(e)) continue;
+        const d = dist(from.x, from.y, e.x, e.y);
+        if (d < bd) { bd = d; best = e; }
+      }
+    }
+    return best;
+  }
+
+  pickTarget(from) {
+    const b = this.nearestEnemy(from, (e) => e.isBuilding);
+    if (b) return { x: b.x, y: b.y + b.h / 2 + 0.5 };
+    const u = this.nearestEnemy(from, (e) => !e.isAir);
+    return u && { x: u.x, y: u.y };
+  }
+
+  // ---------- placement ----------
   findSpot(key) {
     const g = this.g, p = this.p, m = g.map;
     const def = BUILDINGS[key];
     const cy = this.conyard() || g.buildings.find((b) => b.owner === p);
     if (!cy) return null;
     let ax = cy.x, ay = cy.y;
-    if (key === 'refinery') {
-      let bd = Infinity;
-      for (const i of m.oreTiles) {
-        if (!m.ore[i]) continue;
-        const x = (i % m.w) + 0.5, y = ((i / m.w) | 0) + 0.5;
-        const d = dist(x, y, cy.x, cy.y);
-        if (d < bd) { bd = d; ax = x; ay = y; }
+    const nearestTile = (test) => {
+      let bd = Infinity, best = null;
+      for (let y = Math.max(0, Math.floor(cy.y - 16)); y < Math.min(m.h, cy.y + 16); y++) {
+        for (let x = Math.max(0, Math.floor(cy.x - 16)); x < Math.min(m.w, cy.x + 16); x++) {
+          if (!test(m.idx(x, y))) continue;
+          const d = dist(x + 0.5, y + 0.5, cy.x, cy.y);
+          if (d < bd) { bd = d; best = { x: x + 0.5, y: y + 0.5 }; }
+        }
       }
+      return best;
+    };
+    if (key === 'refinery') {
+      const o = nearestTile((i) => m.ore[i] > 0);
+      if (o) { ax = o.x; ay = o.y; }
+    } else if (def.naval) {
+      const w = nearestTile((i) => m.terrain[i] === 1);
+      if (!w) return null;
+      ax = w.x; ay = w.y;
     } else if (def.weapon && p.rally) {
       ax = p.rally.x + (Math.random() - 0.5) * 6;
       ay = p.rally.y + (Math.random() - 0.5) * 6;
@@ -157,7 +258,7 @@ export class AI {
       for (let tx = Math.floor(ax - 14); tx <= ax + 14; tx++) {
         const d = dist(tx + def.w / 2, ty + def.h / 2, ax, ay);
         if (d >= bd || !g.canPlace(p, key, tx, ty)) continue;
-        if (!def.weapon && !this.hasMargin(tx, ty, def)) continue;
+        if (!def.weapon && !def.naval && !this.hasMargin(tx, ty, def)) continue;
         best = { x: tx, y: ty };
         bd = d;
       }

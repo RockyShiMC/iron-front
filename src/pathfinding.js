@@ -54,14 +54,17 @@ export class Pathfinder {
   }
 
   // Returns an array of world-space waypoints (excluding the start), or null.
-  find(sx, sy, gx, gy, maxNodes = 8000) {
+  // domain: 'land' (ground units) or 'sea' (ships).
+  find(sx, sy, gx, gy, maxNodes = 20000, domain = 'land') {
     const m = this.map;
     const W = m.w;
+    this.domain = domain;
+    const pass = (x, y) => m.passable(domain, x, y);
     const sxi = Math.floor(sx), syi = Math.floor(sy);
     let gxi = Math.floor(gx), gyi = Math.floor(gy);
     let exactGoal = true;
-    if (!m.isPassable(gxi, gyi)) {
-      const p = m.nearestPassable(gxi, gyi, sxi, syi);
+    if (!pass(gxi, gyi)) {
+      const p = m.nearestPassable(gxi, gyi, sxi, syi, domain);
       if (!p) return null;
       gxi = p.x; gyi = p.y; exactGoal = false;
     }
@@ -89,8 +92,8 @@ export class Pathfinder {
       if (ch < bestH) { bestH = ch; best = cur; }
       for (const [dx, dy, cost] of DIRS) {
         const nx = cx + dx, ny = cy + dy;
-        if (!m.isPassable(nx, ny)) continue;
-        if (dx && dy && (!m.isPassable(cx + dx, cy) || !m.isPassable(cx, cy + dy))) continue;
+        if (!pass(nx, ny)) continue;
+        if (dx && dy && (!pass(cx + dx, cy) || !pass(cx, cy + dy))) continue;
         const ni = ny * W + nx;
         if (this.closed[ni] === run) continue;
         const ng = this.g[cur] + cost;
@@ -133,8 +136,8 @@ export class Pathfinder {
     for (let s = 1; s <= steps; s++) {
       const t = s / steps;
       const x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
-      if (!this.map.isPassable(Math.floor(x + px), Math.floor(y + py))) return false;
-      if (!this.map.isPassable(Math.floor(x - px), Math.floor(y - py))) return false;
+      if (!this.map.passable(this.domain, Math.floor(x + px), Math.floor(y + py))) return false;
+      if (!this.map.passable(this.domain, Math.floor(x - px), Math.floor(y - py))) return false;
     }
     return true;
   }

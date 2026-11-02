@@ -1,4 +1,4 @@
-// Data-driven game rules (think RA2's rules.ini). Tweak balance here.
+// Data-driven game rules. Tweak balance here.
 
 export const TILE_W = 64;
 export const TILE_H = 32;
@@ -10,29 +10,43 @@ export const START_CREDITS = 5000;
 
 // Damage multipliers: warhead -> armor class
 export const WARHEADS = {
-  bullet: { infantry: 1.0, vehicle: 0.25, building: 0.2 },
-  shell: { infantry: 0.45, vehicle: 1.0, building: 0.75 },
-  rocket: { infantry: 0.35, vehicle: 1.25, building: 0.6 },
-  electric: { infantry: 1.3, vehicle: 0.9, building: 0.45 },
-  prism: { infantry: 0.9, vehicle: 0.8, building: 1.3 },
+  bullet: { infantry: 1.0, vehicle: 0.25, building: 0.2, aircraft: 0.35, ship: 0.3 },
+  shell: { infantry: 0.45, vehicle: 1.0, building: 0.75, aircraft: 0, ship: 1.0 },
+  rocket: { infantry: 0.35, vehicle: 1.25, building: 0.6, aircraft: 1.0, ship: 1.1 },
+  electric: { infantry: 1.3, vehicle: 0.9, building: 0.45, aircraft: 0.6, ship: 1.0 },
+  prism: { infantry: 0.9, vehicle: 0.8, building: 1.3, aircraft: 0.5, ship: 0.9 },
+  flak: { infantry: 0.4, vehicle: 0.1, building: 0.1, aircraft: 1.6, ship: 0.2 },
+  bomb: { infantry: 0.6, vehicle: 1.0, building: 1.4, aircraft: 0, ship: 1.2 },
 };
 
-// projectile: tracer | bolt | beam are instant hits; shell | rocket travel.
+// projectile: tracer | bolt | beam | flak are instant hits; shell | rocket | bomb travel.
 // splash: radius (tiles) that takes 50% damage. salvo: shots per trigger pull.
+// air: can hit aircraft. ground: false = anti-air only.
 export const WEAPONS = {
-  rifle: { damage: 14, range: 4.5, cooldown: 0.9, warhead: 'bullet', projectile: 'tracer' },
-  conscriptRifle: { damage: 10, range: 4, cooldown: 0.9, warhead: 'bullet', projectile: 'tracer' },
-  rocket: { damage: 42, range: 5.5, cooldown: 2.2, warhead: 'rocket', projectile: 'rocket', speed: 8 },
+  rifle: { damage: 14, range: 4.5, cooldown: 0.9, warhead: 'bullet', projectile: 'tracer', air: true },
+  conscriptRifle: { damage: 10, range: 4, cooldown: 0.9, warhead: 'bullet', projectile: 'tracer', air: true },
+  rocket: { damage: 42, range: 5.5, cooldown: 2.2, warhead: 'rocket', projectile: 'rocket', speed: 8, air: true },
   teslaBolt: { damage: 40, range: 3.5, cooldown: 1.5, warhead: 'electric', projectile: 'bolt' },
   grizzlyCannon: { damage: 36, range: 5, cooldown: 1.4, warhead: 'shell', projectile: 'shell', speed: 14 },
   rhinoCannon: { damage: 48, range: 5, cooldown: 1.6, warhead: 'shell', projectile: 'shell', speed: 13 },
   apocCannon: { damage: 50, range: 5.5, cooldown: 2.2, warhead: 'shell', projectile: 'shell', speed: 13, salvo: 2 },
   prismBeam: { damage: 55, range: 7, cooldown: 3, warhead: 'prism', projectile: 'beam', splash: 1 },
-  minigun: { damage: 10, range: 4, cooldown: 0.4, warhead: 'bullet', projectile: 'tracer' },
-  pillboxGun: { damage: 18, range: 5.5, cooldown: 0.5, warhead: 'bullet', projectile: 'tracer' },
-  sentryGun: { damage: 15, range: 6, cooldown: 0.45, warhead: 'bullet', projectile: 'tracer' },
+  minigun: { damage: 10, range: 4, cooldown: 0.4, warhead: 'bullet', projectile: 'tracer', air: true },
+  pillboxGun: { damage: 18, range: 5.5, cooldown: 0.5, warhead: 'bullet', projectile: 'tracer', air: true },
+  sentryGun: { damage: 15, range: 6, cooldown: 0.45, warhead: 'bullet', projectile: 'tracer', air: true },
   prismTowerBeam: { damage: 90, range: 7.5, cooldown: 2.5, warhead: 'prism', projectile: 'beam', splash: 1.2 },
   teslaCoilBolt: { damage: 110, range: 6.5, cooldown: 2.4, warhead: 'electric', projectile: 'bolt' },
+  aaFlak: { damage: 30, range: 7.5, cooldown: 0.6, warhead: 'flak', projectile: 'flak', air: true, ground: false },
+  // aircraft (ammo: shots before returning to an airfield; omitted = unlimited)
+  hawkRockets: { damage: 30, range: 4.5, cooldown: 1.0, warhead: 'rocket', projectile: 'rocket', speed: 10 },
+  stormCannon: { damage: 42, range: 4.5, cooldown: 1.4, warhead: 'shell', projectile: 'shell', speed: 14 },
+  strikeMissile: { damage: 95, range: 3.5, cooldown: 0.35, warhead: 'rocket', projectile: 'rocket', speed: 14 },
+  heavyBomb: { damage: 120, range: 1.6, cooldown: 0.3, warhead: 'bomb', projectile: 'bomb', speed: 6, splash: 1.3 },
+  // ships
+  patrolGun: { damage: 14, range: 5.5, cooldown: 0.4, warhead: 'bullet', projectile: 'tracer', air: true },
+  frigateMissile: { damage: 55, range: 8, cooldown: 2.5, warhead: 'rocket', projectile: 'rocket', speed: 11, air: true },
+  gunboatCannon: { damage: 36, range: 5.5, cooldown: 1.5, warhead: 'shell', projectile: 'shell', speed: 13, air: false },
+  battleshipGuns: { damage: 60, range: 10, cooldown: 4, warhead: 'shell', projectile: 'shell', speed: 11, salvo: 2, splash: 1.2 },
 };
 
 // category: which sidebar tab / which factory produces it. faction: omitted = both sides.
@@ -85,6 +99,50 @@ export const UNITS = {
     name: 'War Miner', faction: 'soviet', category: 'vehicle', cost: 1400, time: 14, hp: 900, speed: 1.6,
     sight: 5, armor: 'vehicle', harvester: true, capacity: 900, mineRate: 55, weapon: 'minigun', turret: true,
     radius: 0.42, size: 0.55, look: 'harvester', prereq: ['factory', 'refinery'],
+  },
+
+  // ---- Air (domain 'air': fly over everything, only anti-air weapons can hit them) ----
+  hawkGunship: {
+    name: 'Hawk Gunship', faction: 'allied', category: 'air', domain: 'air', cost: 1000, time: 12, hp: 220,
+    speed: 3.6, sight: 8, armor: 'aircraft', weapon: 'hawkRockets', radius: 0.4, size: 0.45, look: 'heli',
+    prereq: ['airfield'],
+  },
+  strikeJet: {
+    name: 'Strike Jet', faction: 'allied', category: 'air', domain: 'air', cost: 1300, time: 14, hp: 180,
+    speed: 6, sight: 7, armor: 'aircraft', weapon: 'strikeMissile', ammo: 2, radius: 0.4, size: 0.5, look: 'jet',
+    prereq: ['airfield'],
+  },
+  stormGunship: {
+    name: 'Storm Gunship', faction: 'soviet', category: 'air', domain: 'air', cost: 1100, time: 13, hp: 320,
+    speed: 2.9, sight: 8, armor: 'aircraft', weapon: 'stormCannon', radius: 0.45, size: 0.55, look: 'heli',
+    prereq: ['airfield'],
+  },
+  heavyBomber: {
+    name: 'Heavy Bomber', faction: 'soviet', category: 'air', domain: 'air', cost: 1600, time: 16, hp: 380,
+    speed: 3.8, sight: 7, armor: 'aircraft', weapon: 'heavyBomb', ammo: 4, radius: 0.55, size: 0.7, look: 'bomber',
+    prereq: ['airfield'],
+  },
+
+  // ---- Navy (domain 'sea': water only) ----
+  patrolBoat: {
+    name: 'Patrol Boat', faction: 'allied', category: 'naval', domain: 'sea', cost: 600, time: 8, hp: 300,
+    speed: 3.2, sight: 7, armor: 'ship', weapon: 'patrolGun', turret: true, radius: 0.4, size: 0.5,
+    look: 'boat', prereq: ['shipyard'],
+  },
+  missileFrigate: {
+    name: 'Missile Frigate', faction: 'allied', category: 'naval', domain: 'sea', cost: 1300, time: 14, hp: 550,
+    speed: 2.2, sight: 9, armor: 'ship', weapon: 'frigateMissile', turret: true, radius: 0.55, size: 0.8,
+    look: 'frigate', prereq: ['shipyard', 'radar'],
+  },
+  gunboat: {
+    name: 'Gunboat', faction: 'soviet', category: 'naval', domain: 'sea', cost: 700, time: 9, hp: 450,
+    speed: 2.6, sight: 7, armor: 'ship', weapon: 'gunboatCannon', turret: true, radius: 0.45, size: 0.55,
+    look: 'boat', prereq: ['shipyard'],
+  },
+  battleship: {
+    name: 'Battleship', faction: 'soviet', category: 'naval', domain: 'sea', cost: 2000, time: 20, hp: 1200,
+    speed: 1.4, sight: 9, armor: 'ship', weapon: 'battleshipGuns', turret: true, radius: 0.7, size: 1.0,
+    look: 'battleship', prereq: ['shipyard', 'radar'],
   },
 };
 
@@ -152,6 +210,68 @@ export const VOICES = {
     move: ['Moving to ore.', 'Proceeding.', 'On the way.'],
     attack: ['Weapons free!', 'Defending the ore!', 'Open fire!'],
   },
+  hawkGunship: {
+    pitch: 1.0, rate: 1.15, male: true,
+    select: ['Hawk on station.', 'Rotors spinning.', 'Gunship ready.'],
+    move: ['Flying there now.', 'Roger, inbound.', 'Changing heading.'],
+    attack: ['Rockets hot!', 'Strafing run!', 'Target in sight!'],
+  },
+  strikeJet: {
+    pitch: 1.1, rate: 1.25, male: true,
+    select: ['Strike jet, standing by.', 'Ready to scramble.', 'Fueled and armed.'],
+    move: ['Afterburners on.', 'Roger that.', 'Vectoring.'],
+    attack: ['Missiles away!', 'Going in hot!', 'Target locked!'],
+  },
+  stormGunship: {
+    pitch: 0.7, rate: 1.0, male: true,
+    select: ['Storm gunship ready.', 'Heavy rotor here.', 'Orders, comrade?'],
+    move: ['Flying.', 'Course set.', 'Moving in.'],
+    attack: ['Cannon firing!', 'Rain fire on them!', 'Attack run!'],
+  },
+  heavyBomber: {
+    pitch: 0.5, rate: 0.9, male: true,
+    select: ['Heavy bomber ready.', 'Bomb bay loaded.', 'Awaiting target.'],
+    move: ['Proceeding.', 'Holding course.', 'Flying high.'],
+    attack: ['Bombs away!', 'Carpet them!', 'Payload released!'],
+  },
+  patrolBoat: {
+    pitch: 1.05, rate: 1.15, male: true,
+    select: ['Patrol boat ready.', 'On the water.', 'Captain here.'],
+    move: ['Full speed.', 'Setting course.', 'Aye aye.'],
+    attack: ['Guns blazing!', 'Engaging!', 'Open fire!'],
+  },
+  missileFrigate: {
+    pitch: 0.85, rate: 1.0, male: false,
+    select: ['Frigate on station.', 'Missiles armed.', 'Radar sweep clear.'],
+    move: ['Changing course.', 'Underway.', 'Plotting a route.'],
+    attack: ['Missiles launched!', 'Target tracked!', 'Firing solution ready!'],
+  },
+  gunboat: {
+    pitch: 0.8, rate: 1.05, male: true,
+    select: ['Gunboat ready.', 'Crew at stations.', 'Orders, comrade?'],
+    move: ['Sailing.', 'Ahead full.', 'Da, moving.'],
+    attack: ['Fire the cannon!', 'Sink them!', 'Attack!'],
+  },
+  battleship: {
+    pitch: 0.4, rate: 0.85, male: true,
+    select: ['Battleship ready.', 'Main guns loaded.', 'The fleet awaits.'],
+    move: ['All ahead.', 'Steady as she goes.', 'Coming about.'],
+    attack: ['Broadside!', 'Bombard the shore!', 'Fire all guns!'],
+  },
+};
+
+// AI toughness. think: seconds between decisions; firstAttack / waveEvery: seconds;
+// income / build: multipliers on harvesting and production speed;
+// trickle: credits per second so the AI never stalls completely.
+export const DIFFICULTY = {
+  normal: {
+    name: 'Normal', think: 1.2, firstAttack: 210, waveMin: 6, waveEvery: 110, maxWave: 14,
+    income: 1, build: 1, bonusCredits: 0, trickle: 3, raids: false, airNavyShare: 0.25,
+  },
+  hard: {
+    name: 'Hard', think: 0.7, firstAttack: 140, waveMin: 7, waveEvery: 75, maxWave: 22,
+    income: 1.35, build: 1.25, bonusCredits: 2500, trickle: 6, raids: true, airNavyShare: 0.4,
+  },
 };
 
 export const BUILDINGS = {
@@ -201,6 +321,19 @@ export const BUILDINGS = {
     name: 'Tesla Coil', faction: 'soviet', role: 'advDefense', w: 1, h: 1, hp: 650, cost: 1500, time: 14,
     power: -75, sight: 7, height: 44, weapon: 'teslaCoilBolt', prereq: ['radar'],
   },
+  // ---- Shared: air, sea, anti-air ----
+  airfield: {
+    name: 'Airfield', w: 3, h: 3, hp: 1000, cost: 1500, time: 14, power: -40, sight: 6,
+    height: 8, prereq: ['radar'], produces: 'air',
+  },
+  shipyard: {
+    name: 'Shipyard', w: 3, h: 3, hp: 1200, cost: 1500, time: 14, power: -30, sight: 6,
+    height: 22, prereq: ['refinery'], produces: 'naval', naval: true, // must be built on water
+  },
+  aaBattery: {
+    name: 'AA Battery', role: 'aaDefense', w: 1, h: 1, hp: 500, cost: 700, time: 9, power: -20, sight: 8,
+    height: 14, weapon: 'aaFlak', prereq: ['barracks'],
+  },
 };
 
 export const FACTIONS = {
@@ -211,9 +344,11 @@ export const FACTIONS = {
     harvester: 'chronoMiner',
     start: { tank: 'grizzly', infantry: 'gi' },
     tabs: [
-      { id: 'building', label: 'Structures', items: ['power', 'refinery', 'barracks', 'factory', 'radar', 'pillbox', 'prismTower'] },
+      { id: 'building', label: 'Base', items: ['power', 'refinery', 'barracks', 'factory', 'radar', 'airfield', 'shipyard', 'pillbox', 'prismTower', 'aaBattery'] },
       { id: 'infantry', label: 'Infantry', items: ['gi', 'guardianGi'] },
       { id: 'vehicle', label: 'Vehicles', items: ['grizzly', 'prismTank', 'chronoMiner'] },
+      { id: 'air', label: 'Air', items: ['hawkGunship', 'strikeJet'] },
+      { id: 'naval', label: 'Navy', items: ['patrolBoat', 'missileFrigate'] },
     ],
   },
   soviet: {
@@ -223,9 +358,11 @@ export const FACTIONS = {
     harvester: 'warMiner',
     start: { tank: 'rhino', infantry: 'conscript' },
     tabs: [
-      { id: 'building', label: 'Structures', items: ['teslaReactor', 'refinery', 'barracks', 'factory', 'radar', 'sentryGun', 'teslaCoil'] },
+      { id: 'building', label: 'Base', items: ['teslaReactor', 'refinery', 'barracks', 'factory', 'radar', 'airfield', 'shipyard', 'sentryGun', 'teslaCoil', 'aaBattery'] },
       { id: 'infantry', label: 'Infantry', items: ['conscript', 'teslaTrooper'] },
       { id: 'vehicle', label: 'Vehicles', items: ['rhino', 'apocalypse', 'warMiner'] },
+      { id: 'air', label: 'Air', items: ['stormGunship', 'heavyBomber'] },
+      { id: 'naval', label: 'Navy', items: ['gunboat', 'battleship'] },
     ],
   },
 };

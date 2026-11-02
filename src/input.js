@@ -113,8 +113,9 @@ export class Input {
     for (const u of g.units) {
       if (u.owner !== g.human && !g.isExplored(u.x, u.y)) continue;
       const rc = r.entityRect(u);
-      if (sx >= rc.x && sx <= rc.x + rc.w && sy >= rc.y && sy <= rc.y + rc.h && u.x + u.y > bd) {
-        bd = u.x + u.y;
+      const depth = u.x + u.y + (u.isAir && u.z > 4 ? 1000 : 0); // flying aircraft are on top
+      if (sx >= rc.x && sx <= rc.x + rc.w && sy >= rc.y && sy <= rc.y + rc.h && depth > bd) {
+        bd = depth;
         best = u;
       }
     }
@@ -139,7 +140,7 @@ export class Input {
     const g = this.g;
     const picked = g.units.filter((u) => {
       if (u.owner !== g.human) return false;
-      const p = this.r.toScreen(u.x, u.y, 6);
+      const p = this.r.toScreen(u.x, u.y, (u.isAir ? u.z : 0) + 6);
       return p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h;
     });
     if (add) {
@@ -220,7 +221,7 @@ export class Input {
       return;
     }
 
-    if (ent && ent.owner !== human && units.some((u) => u.weapon)) {
+    if (ent && ent.owner !== human && units.some((u) => g.canHit(u.weapon, ent))) {
       this.attack(units, ent);
       return;
     }
@@ -250,12 +251,11 @@ export class Input {
   }
 
   attack(units, target) {
-    for (const u of units) {
-      if (u.weapon) u.orderAttack(this.g, target);
-    }
+    const able = units.filter((u) => this.g.canHit(u.weapon, target));
+    for (const u of able) u.orderAttack(this.g, target);
     this.addMarker(target.x, target.y, '#ff4040');
     this.g.sound('attack');
-    this.g.voice(this.spokesman(units.filter((u) => u.weapon)), 'attack');
+    this.g.voice(this.spokesman(able), 'attack');
   }
 
   // ---------- keyboard ----------
@@ -334,7 +334,7 @@ export class Input {
     else if (this.mode === 'sell') cursor = 'cell';
     else if (this.mode === 'repair') cursor = 'help';
     else if (this.mode === 'attackmove') cursor = 'crosshair';
-    else if (this.hover && this.hover.owner !== g.human && units.some((u) => u.weapon)) cursor = 'crosshair';
+    else if (this.hover && this.hover.owner !== g.human && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
     else if (this.hover && this.hover.owner === g.human) cursor = 'pointer';
     else if (units.length) cursor = 'move';
     this.canvas.style.cursor = cursor;
