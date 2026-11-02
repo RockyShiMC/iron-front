@@ -58,6 +58,9 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 - A* pathfinding with path smoothing, formation moves, and units pushing apart so they don't stack
 - Terrain painted lazily in 8×8-tile chunks, so even the 120×120 World map starts in well under a second
 - Sell, repair, rally points, control groups and a minimap
+- Veterancy: units earn experience from what they destroy. Veterans (one chevron) and elites (two) deal more damage, take less, reload faster, and elites repair themselves
+- Orders: Shift-click to queue waypoints, force fire on anything including the ground, and guard a spot or escort another unit
+- Settings: game speed, scroll speed, sound and voice volume, and when to show health bars; remembered between battles
 - Battle menu (Esc or the Menu button): pause, save, load, restart the same map, or quit to the main menu
 - Save and load: five save slots kept in the browser's local storage. A save holds the whole battle (units, buildings, orders, build queues, ore, shroud, AI plans); the map itself is rebuilt from its seed. Saved battles can also be loaded from the start screen
 - Sound: every effect is synthesized live with the Web Audio API (guns, cannons, rockets, Tesla crackle, Prism hum, explosions, construction, chrono teleports, interface chirps). Battle sounds fade with distance from the screen center and pan left/right
@@ -74,6 +77,9 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 | Right click | Deselect / cancel |
 | Double click | Select all of that type on screen |
 | A / S / Q | Attack-move / stop / select all combat units |
+| Shift + click | Queue waypoints |
+| F, or Ctrl / ⌘ + click | Force fire at a target or the ground |
+| G | Guard: click a unit to escort it, or a spot to hold |
 | Ctrl+1–9, 1–9 | Set / recall group (double tap to jump to it) |
 | Esc | Battle menu (pause / save / load / restart / quit) |
 | H | Jump to base |

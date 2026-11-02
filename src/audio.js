@@ -1,6 +1,7 @@
 // Procedural sound effects (Web Audio), EVA announcements and unit voice
 // responses (speech synthesis). No audio files: every sound is synthesized.
 import { VOICES, VOICE_COMMON, UNITS } from './config.js';
+import { settings } from './settings.js';
 
 // What EVA says for each game notification. Messages not listed stay silent.
 const EVA_LINES = {
@@ -67,7 +68,7 @@ export class AudioSystem {
     if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain();
-    this.master.gain.value = this.sfxOn ? 0.55 : 0;
+    this.applyVolume();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
     comp.ratio.value = 6;
@@ -116,7 +117,7 @@ export class AudioSystem {
     if (voice) u.voice = voice;
     u.pitch = pitch;
     u.rate = rate;
-    u.volume = 0.9;
+    u.volume = settings.voiceVolume;
     if (kind === 'eva') this.evaPending++;
     u.onstart = () => { this.currentKind = kind; this.currentUrgent = urgent; };
     u.onend = u.onerror = () => {
@@ -157,7 +158,12 @@ export class AudioSystem {
   setSfx(on) {
     this.sfxOn = on;
     savePref('ironfront.sfx', on);
-    if (this.master) this.master.gain.value = on ? 0.55 : 0;
+    this.applyVolume();
+  }
+
+  // Sound effects volume comes from the settings screen; muting keeps it
+  applyVolume() {
+    if (this.master) this.master.gain.value = this.sfxOn ? 0.7 * settings.sfxVolume : 0;
   }
 
   setVoice(on) {

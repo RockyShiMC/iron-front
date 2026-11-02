@@ -6,6 +6,7 @@ import { UI } from './ui.js';
 import { AudioSystem } from './audio.js';
 import { MAPS } from './maps.js';
 import { SLOTS, listSaves, writeSave, readSave, deleteSave } from './save.js';
+import { settings, saveSettings } from './settings.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -74,9 +75,11 @@ function frame(now) {
   if (!session) return;
   const { game, renderer, input, ui } = session;
   const paused = input.paused || !!menu;
-  if (running && !paused) game.update(dt);
+  // Faster game speeds run extra simulation steps rather than one big one
+  const step = dt * settings.speed;
+  if (running && !paused) for (let left = step; left > 1e-6; left -= 0.05) game.update(Math.min(0.05, left));
   input.update(dt);
-  renderer.draw(paused ? 0 : dt, input);
+  renderer.draw(paused ? 0 : step, input);
   ui.update();
   playSounds();
   pauseEl.style.display = input.paused && !menu ? 'flex' : 'none';
@@ -204,6 +207,7 @@ function renderMenu() {
         <button data-act="save" class="secondary">Save battle</button>
         <button data-act="load" class="secondary">Load battle</button>
         <button data-act="restart" class="secondary">Restart battle</button>
+        <button data-act="settings" class="secondary">Settings</button>
         <button data-act="quit" class="secondary">Quit to main menu</button>
       </div>
       <p class="sub hint">Esc to resume</p>`;
@@ -227,6 +231,19 @@ function renderMenu() {
       <div class="slots">${rows.join('')}</div>
       <p class="note">${menu.note}</p>
       <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
+  } else if (v === 'settings') {
+    const opt = (key, choices) => choices.map(([val, label]) => `<option value="${val}" ${String(settings[key]) === String(val) ? 'selected' : ''}>${label}</option>`).join('');
+    const range = (key, min, max, step) => `<input type="range" data-set="${key}" min="${min}" max="${max}" step="${step}" value="${settings[key]}">`;
+    html = `
+      <h1>Settings</h1>
+      <div class="settings">
+        <label>Game speed <select data-set="speed">${opt('speed', [[0.75, 'Slow'], [1, 'Normal'], [1.25, 'Fast'], [1.5, 'Faster']])}</select></label>
+        <label>Scroll speed ${range('scroll', 0.5, 2, 0.1)}</label>
+        <label>Sound effects ${range('sfxVolume', 0, 1, 0.05)}</label>
+        <label>Voices ${range('voiceVolume', 0, 1, 0.05)}</label>
+        <label>Health bars <select data-set="healthBars">${opt('healthBars', [['selected', 'Selected only'], ['damaged', 'Damaged units'], ['all', 'Always']])}</select></label>
+      </div>
+      <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
   } else if (v === 'confirm') {
     html = `
       <h1>${menu.title}</h1>
@@ -246,7 +263,7 @@ menuPanel.addEventListener('click', (e) => {
   const act = b.dataset.act;
   if (act === 'resume') closeMenu();
   else if (act === 'back') menuBack();
-  else if (act === 'save' || act === 'load') setView(act);
+  else if (act === 'save' || act === 'load' || act === 'settings') setView(act);
   else if (act === 'restart') setView('confirm', { title: 'Restart battle?', yes: 'Restart', then: restartBattle });
   else if (act === 'quit') setView('confirm', { title: 'Quit battle?', yes: 'Quit', then: quitToSetup });
   else if (act === 'yes') menu.then();
@@ -269,6 +286,15 @@ menuPanel.addEventListener('click', (e) => {
     if (menu.confirmDel === n) { deleteSave(n); setView(menu.view, { note: `Slot ${n} deleted.` }); }
     else setView(menu.view, { confirmDel: n });
   }
+});
+
+// Settings apply as soon as a control moves
+menuPanel.addEventListener('input', (e) => {
+  const key = e.target.dataset.set;
+  if (!key) return;
+  settings[key] = typeof settings[key] === 'number' ? Number(e.target.value) : e.target.value;
+  saveSettings();
+  audio.applyVolume();
 });
 
 // ---------- setup screen ----------
@@ -302,6 +328,7 @@ function refreshSetup() {
 refreshSetup();
 
 loadBtn.addEventListener('click', () => { audio.unlock(); openMenu('load'); });
+document.getElementById('settings').addEventListener('click', () => openMenu('settings'));
 document.getElementById('start').addEventListener('click', () => {
   audio.unlock(); // inside the click, so the browser allows audio
   try { localStorage.setItem('ironfront.setup', JSON.stringify(setup)); } catch { /* storage unavailable */ }

@@ -1,4 +1,4 @@
-import { BUILDINGS, WARHEADS, FACTIONS, DIFFICULTY } from './config.js';
+import { BUILDINGS, WARHEADS, FACTIONS, DIFFICULTY, RANKS } from './config.js';
 import { GameMap, WATER } from './map.js';
 import { Pathfinder } from './pathfinding.js';
 import { Unit, Building } from './entities.js';
@@ -200,7 +200,8 @@ export class Game {
   }
 
   // ---------- orders ----------
-  groupOrder(units, x, y, type = 'move') {
+  // queue: add to each unit's waypoints (Shift) instead of replacing its orders
+  groupOrder(units, x, y, type = 'move', queue = false) {
     const sorted = [...units].sort((a, b) => dist(a.x, a.y, x, y) - dist(b.x, b.y, x, y));
     const slot = { land: 0, sea: 0, air: 0 }; // each domain fills its own formation
     for (const u of sorted) {
@@ -210,6 +211,8 @@ export class Game {
         const px = x + f.x * (u.isNaval ? 1.6 : 1), py = y + f.y * (u.isNaval ? 1.6 : 1);
         if (this.map.passable(u.domain, Math.floor(px), Math.floor(py))) { sx = px; sy = py; break; }
       }
+      if (queue && (u.order.type !== 'idle' || u.waypoints?.length)) { (u.waypoints ||= []).push({ type, x: sx, y: sy }); continue; }
+      u.waypoints = [];
       if (type === 'attackmove') u.orderAttackMove(this, sx, sy);
       else u.orderMove(this, sx, sy);
     }
@@ -254,18 +257,19 @@ export class Game {
   }
 
   // ---------- combat ----------
-  findTarget(e, range) {
+  // Nearest enemy within range of (x, y), which defaults to the shooter's own position
+  findTarget(e, range, x = e.x, y = e.y) {
     let best = null, bd = Infinity;
     const w = e.weapon;
     for (const u of this.units) {
       if (u.dead || u.owner === e.owner || !this.canHit(w, u)) continue;
-      const d = dist(e.x, e.y, u.x, u.y);
+      const d = dist(x, y, u.x, u.y);
       if (d <= range && d < bd) { bd = d; best = u; }
     }
     if (best || w.ground === false) return best;
     for (const b of this.buildings) {
       if (b.dead || b.owner === e.owner) continue;
-      const d = distToEntity(e.x, e.y, b);
+      const d = distToEntity(x, y, b);
       if (d <= range && d < bd) { bd = d; best = b; }
     }
     return best;
@@ -273,7 +277,7 @@ export class Game {
 
   fire(shooter, target) {
     const w = shooter.weapon;
-    shooter.cooldown = w.cooldown;
+    shooter.cooldown = w.cooldown * RANKS[shooter.rank || 0].reload;
     const c = this.entityCenter(target);
     const aim = shooter.turretDir ?? shooter.dir;
     const reach = shooter.isInfantry ? 0.2 : shooter.isBuilding ? 0.45 : 0.5;
@@ -330,7 +334,7 @@ export class Game {
 
   // Apply a weapon hit at (x, y), including splash damage to nearby enemies.
   hit(target, w, attacker, x, y) {
-    if (!target.dead) this.damage(target, w.damage, w.warhead, attacker);
+    if (!target.dead && !target.isGround) this.damage(target, w.damage, w.warhead, attacker);
     if (!w.splash) return;
     const owner = attacker.owner;
     for (const list of [this.units, this.buildings]) {
@@ -343,19 +347,20 @@ export class Game {
 
   damage(target, amount, warhead, attacker) {
     if (target.dead) return;
-    const mult = WARHEADS[warhead][target.armor] ?? 1;
+    const mult = (WARHEADS[warhead][target.armor] ?? 1) * RANKS[attacker?.rank || 0].damage * RANKS[target.rank || 0].armor;
     target.hp -= amount * mult;
     target.lastAttacker = attacker;
     target.lastAttacked = this.time;
     if (target.owner === this.human && target.isBuilding) this.notify('Our base is under attack!', 'alert', 20);
     if (target.owner === this.human && target.def.harvester) this.notify('Ore miner under attack', 'alert', 20);
     if (target.isUnit && attacker && attacker.owner !== target.owner) target.retaliate(this, attacker);
-    if (target.hp <= 0) this.kill(target);
+    if (target.hp <= 0) this.kill(target, attacker);
   }
 
-  kill(e) {
+  kill(e, killer = null) {
     e.dead = true;
     e.hp = 0;
+    if (killer && killer.isUnit && !killer.dead && killer.owner !== e.owner) this.gainXp(killer, e.def.cost);
     if (e.isBuilding) {
       this.removeBuilding(e);
       this.spawnExplosion(e.x, e.y, 1 + e.w * 0.4, true);
@@ -365,6 +370,19 @@ export class Game {
       // aircraft crash to the ground; ships and vehicles burst in place
       this.spawnExplosion(e.x, e.y, e.isInfantry ? 0.25 : e.isNaval ? 0.9 : 0.7, !e.isInfantry);
       if (e.owner === this.human) this.notify('Unit lost', 'warn', 8);
+    }
+  }
+
+  // Experience for destroying something worth `value` credits; may promote the unit
+  gainXp(u, value) {
+    u.xp = (u.xp || 0) + value;
+    const before = u.rank || 0;
+    while ((u.rank || 0) < RANKS.length - 1 && u.xp >= RANKS[(u.rank || 0) + 1].xp * u.def.cost) u.rank = (u.rank || 0) + 1;
+    if (u.rank === before) return;
+    this.effects.push({ type: 'promote', x: u.x, y: u.y, z: u.isAir ? u.z + 20 : 20, vx: 0, vy: 0, vz: 22, life: 1.4, max: 1.4, rank: u.rank });
+    if (u.owner === this.human) {
+      this.notify('Unit promoted', 'info', 2);
+      this.voice(u, 'promoted');
     }
   }
 

@@ -1,4 +1,5 @@
 import { TILE_W, TILE_H, HALF_W, HALF_H, BUILDINGS } from './config.js';
+import { settings } from './settings.js';
 import { GRASS, WATER, ROCK } from './map.js';
 import { shade, hashTile, clamp, mulberry32, fbm, vnoise, smoothstep, dist } from './util.js';
 
@@ -386,7 +387,20 @@ export class Renderer {
     this.drawEffects();
     this.drawShroud();
 
-    // Overlays: selection + health bars
+    // Overlays: veterancy chevrons, selection + health bars
+    for (const u of g.units) {
+      if (!u.rank || (u.owner !== g.human && !g.isExplored(u.x, u.y))) continue;
+      if (this.onScreen(this.toScreen(u.x, u.y))) this.drawRank(u);
+    }
+    if (settings.healthBars !== 'selected') {
+      for (const list of [g.buildings, g.units]) {
+        for (const e of list) {
+          if (input.selection.includes(e) || (settings.healthBars === 'damaged' && e.hp >= e.maxHp)) continue;
+          if (e.owner !== g.human && !g.isExplored(e.x, e.y)) continue;
+          if (this.onScreen(this.toScreen(e.x, e.y))) this.drawHealthBar(e);
+        }
+      }
+    }
     for (const e of input.selection) this.drawSelection(e);
     if (input.hover && !input.selection.includes(input.hover) && g.isExplored(input.hover.x, input.hover.y)) this.drawHealthBar(input.hover);
     if (input.dragRect) {
@@ -1343,6 +1357,18 @@ export class Renderer {
           ctx.lineCap = 'butt';
           break;
         }
+        case 'promote': {
+          ctx.globalAlpha = Math.min(1, t * 2);
+          ctx.font = 'bold 11px Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#000';
+          ctx.fillText(e.rank === 2 ? 'ELITE' : 'PROMOTED', p.x + 1, p.y + 1);
+          ctx.fillStyle = '#ffd94a';
+          ctx.fillText(e.rank === 2 ? 'ELITE' : 'PROMOTED', p.x, p.y);
+          ctx.textAlign = 'start';
+          ctx.globalAlpha = 1;
+          break;
+        }
         case 'chrono': {
           for (let n = 0; n < 3; n++) {
             const r = 6 + ((1 - t) * 30 + n * 8) % 30;
@@ -1478,6 +1504,7 @@ export class Renderer {
     }
     ctx.stroke();
     this.drawHealthBar(e);
+    if (e.isUnit && e.owner === this.g.human && (e.waypoints?.length || e.order.type === 'guard')) this.drawPlan(e);
     if (e.isBuilding && e.rally) {
       const a = this.toScreen(e.x, e.y), b = this.toScreen(e.rally.x, e.rally.y);
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -1488,6 +1515,43 @@ export class Renderer {
       ctx.fillRect(b.x, b.y - 14, 8, 5);
       ctx.fillStyle = '#ddd';
       ctx.fillRect(b.x - 1, b.y - 14, 1.5, 14);
+    }
+  }
+
+  // Dashed line through a selected unit's current destination and its queued waypoints
+  drawPlan(u) {
+    const ctx = this.ctx, o = u.order;
+    const COLOR = { move: 'rgba(120,255,120,0.7)', attackmove: 'rgba(255,110,110,0.7)', guard: 'rgba(110,170,255,0.8)' };
+    const pts = [];
+    if (o.type === 'guard') pts.push({ x: o.target ? o.target.x : o.x, y: o.target ? o.target.y : o.y, type: 'guard' });
+    else if (o.x !== undefined) pts.push({ x: o.x, y: o.y, type: o.type });
+    for (const w of u.waypoints || []) pts.push(w);
+    let from = this.toScreen(u.x, u.y);
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    for (const p of pts) {
+      const to = this.toScreen(p.x, p.y);
+      ctx.strokeStyle = COLOR[p.type] || COLOR.move;
+      ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath(); ctx.ellipse(to.x, to.y, 4, 2, 0, 0, Math.PI * 2); ctx.fill();
+      from = to;
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Gold chevrons beside a promoted unit: one for veteran, two for elite
+  drawRank(u) {
+    const ctx = this.ctx;
+    const r = this.entityRect(u);
+    const x = r.x + r.w - 2, y = r.y + 2;
+    ctx.lineWidth = 2;
+    for (let n = 0; n < u.rank; n++) {
+      const cy = y + n * 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.beginPath(); ctx.moveTo(x - 4, cy + 1); ctx.lineTo(x, cy + 4); ctx.lineTo(x + 4, cy + 1); ctx.stroke();
+      ctx.strokeStyle = u.rank === 2 ? '#ff6a3a' : '#ffd94a';
+      ctx.beginPath(); ctx.moveTo(x - 4, cy); ctx.lineTo(x, cy + 3); ctx.lineTo(x + 4, cy); ctx.stroke();
     }
   }
 

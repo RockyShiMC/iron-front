@@ -1,4 +1,5 @@
 import { BUILDINGS } from './config.js';
+import { settings } from './settings.js';
 
 const EDGE = 14;
 const SCROLL_SPEED = 900;
@@ -14,7 +15,7 @@ export class Input {
     this.hover = null;
     this.dragRect = null;
     this.placing = null; // { key, tx, ty }
-    this.mode = null; // 'sell' | 'repair' | 'attackmove'
+    this.mode = null; // 'sell' | 'repair' | 'attackmove' | 'forcefire' | 'guard'
     this.markers = [];
     this.groups = {};
     this.mouse = { x: 0, y: 0, inside: false };
@@ -184,12 +185,34 @@ export class Input {
 
     const units = this.ownUnits();
 
+    // Force fire (F, or Ctrl / Cmd + click): shoot whatever is there, even the ground
+    if (units.length && (this.mode === 'forcefire' || e.ctrlKey || e.metaKey)) {
+      this.mode = null;
+      const target = ent && !units.includes(ent) ? ent : { isGround: true, x: w.x, y: w.y, dead: false, hp: 1, maxHp: 1 };
+      const able = units.filter((u) => g.canHit(u.weapon, target));
+      for (const u of able) { u.waypoints = []; u.orderAttack(g, target); }
+      this.addMarker(w.x, w.y, '#ff4040');
+      if (able.length) { g.sound('attack'); g.voice(this.spokesman(able), 'attack'); }
+      return;
+    }
+
+    if (this.mode === 'guard') {
+      this.mode = null;
+      if (!units.length) return;
+      const ally = ent && ent.isUnit && ent.owner === human && !units.includes(ent) ? ent : null;
+      for (const u of units) { u.waypoints = []; u.orderGuard(g, w.x, w.y, ally); }
+      this.addMarker(ally ? ally.x : w.x, ally ? ally.y : w.y, '#6ab0ff');
+      g.sound('move');
+      g.voice(this.spokesman(units), 'move');
+      return;
+    }
+
     if (this.mode === 'attackmove') {
       this.mode = null;
       if (!units.length) return;
       if (ent && ent.owner !== human) this.attack(units, ent);
       else {
-        g.groupOrder(units, w.x, w.y, 'attackmove');
+        g.groupOrder(units, w.x, w.y, 'attackmove', e.shiftKey);
         this.addMarker(w.x, w.y, '#ff6060');
         g.sound('attack');
         g.voice(this.spokesman(units), 'attack');
@@ -234,7 +257,7 @@ export class Input {
       const harvesters = oreTile >= 0 ? units.filter((u) => u.def.harvester) : [];
       for (const h of harvesters) h.orderHarvest(g, oreTile);
       const movers = units.filter((u) => !harvesters.includes(u));
-      if (movers.length) g.groupOrder(movers, w.x, w.y, 'move');
+      if (movers.length) g.groupOrder(movers, w.x, w.y, 'move', e.shiftKey);
       this.addMarker(w.x, w.y, harvesters.length ? '#e8c547' : '#60ff60');
       g.sound('move');
       g.voice(this.spokesman(units), 'move');
@@ -254,7 +277,7 @@ export class Input {
 
   attack(units, target) {
     const able = units.filter((u) => this.g.canHit(u.weapon, target));
-    for (const u of able) u.orderAttack(this.g, target);
+    for (const u of able) { u.waypoints = []; u.orderAttack(this.g, target); }
     this.addMarker(target.x, target.y, '#ff4040');
     this.g.sound('attack');
     this.g.voice(this.spokesman(able), 'attack');
@@ -287,8 +310,10 @@ export class Input {
 
     switch (k) {
       case 'escape': this.placing = null; this.mode = null; this.selection = []; break;
-      case 's': for (const u of this.ownUnits()) u.orderStop(); break;
+      case 's': for (const u of this.ownUnits()) { u.waypoints = []; u.orderStop(); } break;
       case 'a': if (this.ownUnits().length) this.mode = 'attackmove'; break;
+      case 'f': if (this.ownUnits().some((u) => u.weapon)) this.mode = 'forcefire'; break;
+      case 'g': if (this.ownUnits().length) this.mode = 'guard'; break;
       case 'q': this.selection = g.units.filter((u) => u.owner === g.human && u.weapon && !u.def.harvester); break;
       case 'h': {
         const cy = g.buildings.find((b) => b.owner === g.human && b.key === 'conyard') || g.buildings.find((b) => b.owner === g.human);
@@ -321,8 +346,8 @@ export class Input {
       if (this.mouse.y > this.r.viewH - EDGE) vy += 1;
     }
     if (vx || vy) {
-      this.r.cam.x += vx * SCROLL_SPEED * dt;
-      this.r.cam.y += vy * SCROLL_SPEED * dt;
+      this.r.cam.x += vx * SCROLL_SPEED * settings.scroll * dt;
+      this.r.cam.y += vy * SCROLL_SPEED * settings.scroll * dt;
       this.r.clampCam();
     }
 
@@ -335,7 +360,8 @@ export class Input {
     if (this.placing) cursor = 'crosshair';
     else if (this.mode === 'sell') cursor = 'cell';
     else if (this.mode === 'repair') cursor = 'help';
-    else if (this.mode === 'attackmove') cursor = 'crosshair';
+    else if (this.mode === 'attackmove' || this.mode === 'forcefire') cursor = 'crosshair';
+    else if (this.mode === 'guard') cursor = 'alias';
     else if (this.hover && this.hover.owner !== g.human && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
     else if (this.hover && this.hover.owner === g.human) cursor = 'pointer';
     else if (units.length) cursor = 'move';

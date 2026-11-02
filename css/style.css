@@ -271,8 +271,13 @@ body[data-faction="soviet"] #tabs button.active { background: #5a2a22; border-co
 .panel button.secondary { background: var(--panel-2); border-color: var(--edge); color: var(--text); }
 .panel button.secondary:hover { background: #2c3a42; }
 .panel button:disabled { opacity: 0.35; cursor: not-allowed; }
-.panel #load { display: block; margin: 6px auto 4px; font-size: 13px; padding: 7px 20px; }
-.panel #load[hidden] { display: none; }
+.setup-extra { display: flex; gap: 8px; justify-content: center; margin: 6px 0 4px; }
+.panel .setup-extra button { margin: 0; font-size: 13px; padding: 7px 20px; }
+.panel .setup-extra button[hidden] { display: none; }
+.settings { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; text-align: left; }
+.settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings input[type=range] { width: 200px; accent-color: var(--accent); }
+.settings select { width: 200px; background: var(--panel-2); color: var(--text); border: 1px solid var(--edge); padding: 4px; }
 
 /* In-battle menu and save slots */
 #menu {

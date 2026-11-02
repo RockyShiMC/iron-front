@@ -1,4 +1,4 @@
-import { UNITS, BUILDINGS, WEAPONS } from './config.js';
+import { UNITS, BUILDINGS, WEAPONS, RANKS } from './config.js';
 import { dist, distToEntity, turnToward, angleDiff } from './util.js';
 
 let nextId = 1;
@@ -52,6 +52,7 @@ export class Unit extends Entity {
     this.turretDir = this.dir;
     this.path = [];
     this.order = { type: 'idle' };
+    this.waypoints = []; // orders queued with Shift, run once the current one is done
     this.repathTimer = 0;
     this.moving = false;
     this.anim = Math.random() * 10;
@@ -98,6 +99,14 @@ export class Unit extends Entity {
     if (this.ammo <= 0) return this.orderRearm(g);
     this.order = { type: 'attack', target, ...extra };
     this.target = target;
+    this.path = [];
+    this.repathTimer = 0;
+  }
+
+  // Stay near an ally (target) or a spot (x, y) and fight anything that comes close
+  orderGuard(g, x, y, target = null) {
+    this.order = { type: 'guard', x, y, target };
+    this.target = null;
     this.path = [];
     this.repathTimer = 0;
   }
@@ -155,7 +164,8 @@ export class Unit extends Entity {
   // ---------- update ----------
   update(dt, g) {
     if (this.cooldown > 0) this.cooldown -= dt;
-    if (this.def.selfHeal && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + this.def.selfHeal * dt);
+    const heal = (this.def.selfHeal || 0) + RANKS[this.rank || 0].heal * this.maxHp;
+    if (heal && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + heal * dt);
     this.moving = false;
     if (this.isAir) this.updateFlight(dt, g);
     const o = this.order;
@@ -180,6 +190,14 @@ export class Unit extends Entity {
         this.updateHarvest(dt, g);
         if (this.weapon) this.guard(dt, g);
         break;
+      case 'guard':
+        this.updateGuard(dt, g, o);
+        break;
+    }
+    if (this.order.type === 'idle' && this.waypoints?.length) {
+      const w = this.waypoints.shift();
+      if (w.type === 'attackmove') this.orderAttackMove(g, w.x, w.y);
+      else this.orderMove(g, w.x, w.y);
     }
     if (this.def.turret && !this.target) this.turretDir = turnToward(this.turretDir, this.dir, 3 * dt);
   }
@@ -246,9 +264,31 @@ export class Unit extends Entity {
     this.target = null;
     const r = o.resume;
     if (!r) this.order = { type: 'idle' };
+    else if (r.type === 'guard') { this.order = r; this.path = []; }
     else if (r.type === 'attackmove') this.orderAttackMove(g, r.x, r.y);
     else if (dist(this.x, this.y, r.x, r.y) > 0.6) this.orderMove(g, r.x, r.y);
     else this.orderStop();
+  }
+
+  updateGuard(dt, g, o) {
+    if (o.target && (o.target.dead || o.target.owner !== this.owner)) { this.order = { type: 'idle' }; return; }
+    const cx = o.target ? o.target.x : o.x, cy = o.target ? o.target.y : o.y;
+    this.scanTimer -= dt;
+    if (this.weapon && this.ammo > 0 && this.scanTimer <= 0) {
+      this.scanTimer = 0.4;
+      const t = g.findTarget(this, this.def.sight + 1, cx, cy);
+      if (t) { this.orderAttack(g, t, { auto: true, home: { x: cx, y: cy }, resume: o }); return; }
+    }
+    if (dist(this.x, this.y, cx, cy) > (o.target ? 2 : 0.8)) {
+      this.repathTimer -= dt;
+      if (this.repathTimer <= 0 || !this.path.length) {
+        this.repathTimer = 1;
+        this.setPath(g, cx, cy);
+      }
+      this.followPath(dt, g);
+    } else {
+      this.path = [];
+    }
   }
 
   updateAttack(dt, g, o) {

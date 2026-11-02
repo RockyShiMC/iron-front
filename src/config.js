@@ -268,14 +268,26 @@ export const VOICE_COMMON = {
     move: ['Acknowledged.', 'Affirmative.', 'Moving.', 'You got it.', 'On the double.'],
     attack: ['Engaging.', 'Attacking.', 'Weapons hot.', 'Going in.'],
     annoyed: ['I heard you the first time.', 'Yes, yes, I am ready.', 'Is there a problem, commander?', 'Do you mind?'],
+    promoted: ['Thank you, sir!', 'I won\'t let you down.', 'Feeling stronger already.'],
   },
   soviet: {
     select: ['Ready, comrade.', 'Da?', 'Awaiting orders.', 'Reporting for duty.', 'For the Union.', 'Yes, comrade general?'],
     move: ['Da!', 'Moving.', 'As you command.', 'Right away.', 'Understood.'],
     attack: ['Attacking!', 'For the Motherland!', 'Destroy them!', 'No mercy!'],
     annoyed: ['I am ready, comrade!', 'Enough clicking!', 'You test my patience.', 'Comrade, please.'],
+    promoted: ['For the glory of the Union!', 'I am honored, comrade!', 'Stronger than ever!'],
   },
 };
+
+// Veterancy. A unit earns experience equal to the cost of what it destroys, and is
+// promoted once that reaches xp × its own cost. Elites also repair themselves.
+// damage: dealt multiplier, armor: damage taken multiplier, reload: cooldown multiplier,
+// heal: fraction of max HP restored per second.
+export const RANKS = [
+  { name: 'Rookie', xp: 0, damage: 1, armor: 1, reload: 1, heal: 0 },
+  { name: 'Veteran', xp: 1, damage: 1.2, armor: 0.85, reload: 0.9, heal: 0 },
+  { name: 'Elite', xp: 3, damage: 1.4, armor: 0.7, reload: 0.8, heal: 0.01 },
+];
 
 // AI toughness. think: seconds between decisions; firstAttack / waveEvery: seconds;
 // income / build: multipliers on harvesting and production speed;

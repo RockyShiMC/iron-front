@@ -169,6 +169,8 @@ export class UI {
       info = Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join('<br>');
     }
     if (this.input.mode === 'attackmove') info = '<b>Attack-move:</b> click a destination';
+    if (this.input.mode === 'forcefire') info = '<b>Force fire:</b> click a target or the ground';
+    if (this.input.mode === 'guard') info = '<b>Guard:</b> click a unit to escort, or a spot to hold';
     if (this.input.mode === 'sell') info = '<b>Sell mode:</b> click one of your structures';
     if (this.input.mode === 'repair') info = '<b>Repair mode:</b> click a damaged structure';
     if (this.input.placing) info = `<b>Place ${defOf(this.input.placing.key).name}</b><br><small>Right click to cancel</small>`;
