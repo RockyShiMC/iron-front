@@ -360,3 +360,24 @@ body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border
 .panel .note { min-height: 1.3em; margin: 8px 0 0; color: var(--accent); }
 #mode button { max-width: 150px; }
 .panel .choice button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Campaign */
+#sw-timers .obj-title { border-color: var(--accent); color: var(--accent); font-weight: bold; }
+#sw-timers .obj { border-color: #555; }
+#sw-timers .obj.done { color: var(--good); }
+#sw-timers .obj.opt i { color: var(--muted); }
+.missions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; text-align: left; }
+.panel .missions button {
+  margin: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--edge); color: var(--text);
+  font: 13px/1.3 "Segoe UI", system-ui, sans-serif; letter-spacing: 0; padding: 8px 12px;
+}
+.panel .missions button:hover:not(:disabled) { background: #2c3a42; }
+.missions .n { font: bold 20px Consolas, monospace; color: var(--accent); width: 20px; }
+.missions .t { flex: 1; display: flex; flex-direction: column; }
+.missions .t span { color: var(--muted); font-size: 11px; }
+.missions .ok { color: var(--good); font-weight: bold; }
+.briefing { text-align: left; margin-top: 10px; }
+.briefing p { margin: 0 0 8px; }
+.briefing ul { margin: 6px 0 0 18px; padding: 0; color: var(--text); }
+.briefing .meta { color: var(--muted); font-size: 12px; text-align: center; }

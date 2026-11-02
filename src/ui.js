@@ -152,6 +152,16 @@ export class UI {
         html += `<div style="border-color:${pl.color}">${pw.name}${pl === p ? '' : g.allied(pl, p) ? ' (ally)' : ' (enemy)'} ${t}</div>`;
       }
     }
+    // campaign objectives above the timers
+    if (g.mission) {
+      const st = g.missionState;
+      const rows = g.mission.objectives.map((o) => {
+        const text = typeof o.text === 'function' ? o.text(g) : o.text;
+        const mark = o.hold ? '◆' : st.done[o.id] ? '✔' : '○';
+        return `<div class="obj${st.done[o.id] ? ' done' : ''}${o.optional ? ' opt' : ''}">${mark} ${text}${o.optional ? ' <i>(bonus)</i>' : ''}</div>`;
+      });
+      html = `<div class="obj-title">${g.mission.title}</div>${rows.join('')}${html}`;
+    }
     if (this.el.timers.innerHTML !== html) this.el.timers.innerHTML = html;
   }
 

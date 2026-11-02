@@ -42,6 +42,7 @@ export class AI {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.d.think;
+    if (this.passive) { this.defend(); return; } // mission garrison: hold position, don't expand
     for (const u of this.attacking) if (u.dead || u.inside) this.attacking.delete(u);
     this.mix = this.enemyMix();
     this.build();

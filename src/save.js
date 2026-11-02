@@ -63,6 +63,7 @@ export function snapshot(game, renderer) {
       effects: enc(game.effects),
       strikes: enc(game.strikes),
       bridges: game.map.bridges.map((b) => ({ hp: b.hp, dead: b.dead })),
+      missionState: game.missionState || null,
       ais: game.ais.map((ai) => fields(ai, enc, ['g', 'p', 'd'])),
     },
   };
@@ -130,6 +131,7 @@ export function restore(data) {
   });
   g.effects = dec(s.effects); // after the bridges, so their collapse doesn't replay
   g.strikes = dec(s.strikes || []);
+  if (s.missionState) g.missionState = s.missionState;
   g.messages = [];
   g.visStamp++;
 
@@ -157,6 +159,7 @@ export function writeSave(slot, game, renderer) {
     map: game.setup.map,
     difficulty: game.setup.difficulty,
     mode: game.setup.mode,
+    mission: game.setup.mission,
   };
   localStorage.setItem(slotKey(slot), JSON.stringify(data));
   index[slot] = meta;

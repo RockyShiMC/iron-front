@@ -1,6 +1,7 @@
 import { BUILDINGS, UNITS, WARHEADS, FACTIONS, DIFFICULTY, RANKS, POWERS, MODES, PLAYER_COLORS, RIVALS } from './config.js';
 import { GameMap, WATER, BRIDGE } from './map.js';
 import { MAPS } from './maps.js';
+import { missionById } from './missions.js';
 import { Pathfinder } from './pathfinding.js';
 import { Unit, Building } from './entities.js';
 import { Player, categoryOf } from './player.js';
@@ -23,18 +24,24 @@ export function mapSupports(mapId, players) {
 }
 
 export class Game {
-  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal', mode = '1v1' } = {}) {
+  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal', mode = '1v1', mission = null } = {}) {
+    // A campaign mission fixes the side, map and opponent
+    const m = mission ? missionById(mission) : null;
+    if (m) {
+      ({ faction, map, seed, difficulty } = m);
+      mode = '1v1';
+    }
     // Kept so a battle can be restarted on the same map, and so saves can rebuild the terrain
     this.seed = seed;
     if (!MODES[mode] || (mode !== '1v1' && !mapSupports(map, MODES[mode].teams.length))) mode = '1v1';
-    this.setup = { faction, map, difficulty, mode };
+    this.setup = { faction, map, difficulty, mode, ...(m ? { mission: m.id } : {}) };
     const teams = MODES[mode].teams;
     this.map = new GameMap(map, seed, teams.length);
     this.pathfinder = new Pathfinder(this.map);
     // You, then the computer players (rival sides in turn), then the civilians
     const colors = PLAYER_COLORS.filter((c) => c.color !== FACTIONS[faction].color);
     this.players = teams.map((team, i) => {
-      const p = new Player(i, i === 0 ? faction : RIVALS[faction][(i - 1) % 3], i > 0);
+      const p = new Player(i, i === 0 ? faction : m?.enemies?.[i - 1] ?? RIVALS[faction][(i - 1) % 3], i > 0);
       p.team = team;
       p.seat = MODES[mode].seats?.[i] ?? i;
       if (i > 0) {
@@ -47,6 +54,7 @@ export class Game {
     this.human = this.players[0];
     this.neutral = this.players[teams.length];
     this.difficulty = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+    if (m && typeof m.ai === 'object') this.difficulty = { ...this.difficulty, ...m.ai };
     for (const p of this.players) {
       if (!p.isAI) continue;
       p.incomeMult = this.difficulty.income;
@@ -85,6 +93,13 @@ export class Game {
     });
     this.placeNeutrals();
     this.ais = this.players.filter((p) => p.isAI).map((p) => new AI(this, p));
+    if (m) {
+      if (m.ai === 'passive') for (const ai of this.ais) ai.passive = true; // only defends
+      this.mission = m;
+      this.missionState = { done: {}, fired: {} };
+      m.setup(this);
+      for (const p of this.players) p.recount(this);
+    }
     this.updateVisibility();
   }
 
@@ -896,6 +911,25 @@ export class Game {
     if (changed) this.visStamp++;
   }
 
+  // Campaign: fire due events, tick off objectives, decide win or loss
+  checkMission() {
+    const m = this.mission, st = this.missionState;
+    (m.events || []).forEach((ev, i) => {
+      if (st.fired[i] || !(ev.at !== undefined ? this.time >= ev.at : ev.when(this))) return;
+      st.fired[i] = true;
+      ev.run(this);
+    });
+    for (const o of m.objectives) {
+      if (o.hold || st.done[o.id] || !o.check(this)) continue;
+      st.done[o.id] = true;
+      this.notify(`Objective complete${o.optional ? ' (bonus)' : ''}`, 'info', 0);
+    }
+    const reason = m.fail?.(this) || (this.human.defeated && 'Your forces were wiped out.');
+    if (reason) { this.result = 'lose'; this.failReason = reason; }
+    else if (m.objectives.every((o) => o.optional || o.hold || st.done[o.id])) this.result = 'win';
+    if (this.result) this.notify(this.result === 'win' ? 'Mission accomplished' : 'Mission failed', 'alert', 0);
+  }
+
   isExplored(x, y) {
     const tx = Math.floor(x), ty = Math.floor(y);
     return this.map.inBounds(tx, ty) && this.explored[this.map.idx(tx, ty)] === 1;
@@ -909,6 +943,7 @@ export class Game {
       p.defeated = true;
       if (p !== this.human) this.notify(`${p.name} ${this.allied(p, this.human) ? '(ally)' : ''} defeated`.replace('  ', ' '), 'info', 0);
     }
+    if (this.mission) return this.checkMission();
     // you lose when you're wiped out, and win when only your team is left
     const teams = new Set(this.players.filter((p) => !p.neutral && !p.defeated).map((p) => p.team));
     if (this.human.defeated) this.result = 'lose';

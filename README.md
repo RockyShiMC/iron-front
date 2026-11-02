@@ -26,6 +26,17 @@ Pick a side on the start screen; the AI plays a rival one.
 | Defenses | Laser Turret, Rail Cannon |
 | Powers | EMP Burst from the Radar (shuts down enemy vehicles, aircraft and defenses for 12 s), Kinetic Strike superweapon (a salvo of orbital rods) |
 
+## Campaign
+
+Four short missions, each unlocking the next (progress is kept in the browser). Every mission opens with a briefing, shows its objectives in the top-left corner, and ends with a "Next mission" button when won.
+
+| # | Mission | Side | Goal |
+|---|---|---|---|
+| 1 | First Light | Allies | No base: take a strike team through a Soviet outpost (reinforcements arrive at 1:30). Bonus: capture an oil derrick |
+| 2 | Iron Line | Soviets | Hold out for 10 minutes against relentless Allied waves, and keep your Construction Yard alive |
+| 3 | Black Gold | Syndicate | Capture both oil derricks with engineers, then destroy the Soviet Construction Yard |
+| 4 | Ghost Protocol | Syndicate | Alone with the cloaked Specter: destroy the Missile Silo before it launches at 6:00 |
+
 ## Modes
 
 | Mode | Players |

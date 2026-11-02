@@ -7,6 +7,7 @@ import { AudioSystem } from './audio.js';
 import { MAPS } from './maps.js';
 import { SLOTS, listSaves, writeSave, readSave, deleteSave } from './save.js';
 import { settings, saveSettings } from './settings.js';
+import { MISSIONS, missionById, missionUnlocked, markMissionDone, campaignProgress } from './missions.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -131,15 +132,24 @@ window.addEventListener('keydown', (e) => {
 document.getElementById('btn-menu').addEventListener('click', () => { if (session && running) openMenu(); });
 
 function showResult(result) {
+  const m = session.game.mission;
+  if (m && result === 'win') markMissionDone(m.id);
+  const next = m && result === 'win' ? MISSIONS[MISSIONS.indexOf(m) + 1] : null;
+  const text = m ? (result === 'win' ? `${m.title} complete.` : session.game.failReason || 'The mission has failed.')
+    : result === 'win' ? 'The enemy base has been destroyed.' : 'Your forces have been wiped out.';
   statusPanel.innerHTML = `
     <h1>${result === 'win' ? 'Mission Accomplished' : 'Mission Failed'}</h1>
-    <p>${result === 'win' ? 'The enemy base has been destroyed.' : 'Your forces have been wiped out.'}</p>
+    <p>${text}</p>
     <div class="menu-buttons">
-      <button data-act="restart">Restart battle</button>
+      ${next ? `<button data-act="next">Next mission: ${next.title}</button>` : ''}
+      <button data-act="restart" ${next ? 'class="secondary"' : ''}>${m ? 'Restart mission' : 'Restart battle'}</button>
+      ${m ? '<button data-act="campaign" class="secondary">Campaign</button>' : ''}
       ${hasSaves() ? '<button data-act="load" class="secondary">Load battle</button>' : ''}
       <button data-act="quit" class="secondary">Main menu</button>
     </div>`;
   statusPanel.querySelector('[data-act=restart]').onclick = restartBattle;
+  statusPanel.querySelector('[data-act=next]')?.addEventListener('click', () => openMenu('briefing', { mission: next.id }));
+  statusPanel.querySelector('[data-act=campaign]')?.addEventListener('click', () => openMenu('campaign'));
   statusPanel.querySelector('[data-act=load]')?.addEventListener('click', () => openMenu('load'));
   statusPanel.querySelector('[data-act=quit]').onclick = quitToSetup;
   showOverlay(statusPanel);
@@ -167,11 +177,12 @@ function quitToSetup() {
 // ---------- in-battle menu ----------
 const hasSaves = () => Object.keys(listSaves()).length > 0;
 const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-const battleName = (s) => `${FACTIONS[s.faction].name} · ${MODES[s.mode || '1v1'].name} · ${MAPS[s.map]?.name ?? s.map} · ${s.difficulty === 'hard' ? 'Hard' : 'Normal'}`;
+const battleName = (s) => s.mission ? `Campaign: ${missionById(s.mission)?.title ?? s.mission}`
+  : `${FACTIONS[s.faction].name} · ${MODES[s.mode || '1v1'].name} · ${MAPS[s.map]?.name ?? s.map} · ${s.difficulty === 'hard' ? 'Hard' : 'Normal'}`;
 
-function openMenu(view = 'main') {
+function openMenu(view = 'main', extra = {}) {
   if (session) session.input.enabled = false;
-  menu = { view, note: '' };
+  menu = { view, note: '', ...extra };
   menuEl.style.display = 'flex';
   renderMenu();
 }
@@ -185,7 +196,8 @@ function closeMenu() {
 // Escape steps back one level: sub-view -> pause menu -> battle
 function menuBack() {
   if (!menu) return;
-  if (menu.view === 'main' || !session || !running) closeMenu();
+  if (menu.view === 'briefing') setView('campaign');
+  else if (menu.view === 'main' || !session || !running) closeMenu();
   else { menu = { view: 'main', note: '' }; renderMenu(); }
 }
 
@@ -244,6 +256,30 @@ function renderMenu() {
         <label>Health bars <select data-set="healthBars">${opt('healthBars', [['selected', 'Selected only'], ['damaged', 'Damaged units'], ['all', 'Always']])}</select></label>
       </div>
       <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
+  } else if (v === 'campaign') {
+    const done = campaignProgress().done;
+    const rows = MISSIONS.map((m, i) => {
+      const open = missionUnlocked(i);
+      return `<button data-mission="${m.id}" ${open ? '' : 'disabled'}><span class="n">${i + 1}</span>
+        <span class="t"><b>${m.title}</b><span>${FACTIONS[m.faction].name} · ${MAPS[m.map].name}${open ? '' : ' · finish the previous mission to unlock'}</span></span>
+        ${done.includes(m.id) ? '<span class="ok">✔</span>' : ''}</button>`;
+    });
+    html = `
+      <h1>Campaign</h1>
+      <p class="sub">Four missions across all three sides. Each one unlocks the next.</p>
+      <div class="missions">${rows.join('')}</div>
+      <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
+  } else if (v === 'briefing') {
+    const m = missionById(menu.mission);
+    const objs = m.objectives.map((o) => `<li>${typeof o.text === 'function' ? o.text({ time: 0, buildings: [], human: null }) : o.text}${o.optional ? ' (bonus)' : ''}</li>`).join('');
+    html = `
+      <h1>${m.title}</h1>
+      <p class="meta">${FACTIONS[m.faction].name} · ${MAPS[m.map].name}${m.difficulty === 'hard' ? ' · Hard' : ''}</p>
+      <div class="briefing">${m.briefing.map((t) => `<p>${t}</p>`).join('')}<b>Objectives</b><ul>${objs}</ul></div>
+      <div class="menu-buttons row">
+        <button data-act="play">Start mission</button>
+        <button data-act="back" class="secondary">Back</button>
+      </div>`;
   } else if (v === 'confirm') {
     html = `
       <h1>${menu.title}</h1>
@@ -267,6 +303,8 @@ menuPanel.addEventListener('click', (e) => {
   else if (act === 'restart') setView('confirm', { title: 'Restart battle?', yes: 'Restart', then: restartBattle });
   else if (act === 'quit') setView('confirm', { title: 'Quit battle?', yes: 'Quit', then: quitToSetup });
   else if (act === 'yes') menu.then();
+  else if (act === 'play') { audio.unlock(); startGame({ mission: menu.mission }); }
+  else if (b.dataset.mission) setView('briefing', { mission: b.dataset.mission });
   else if (b.dataset.save) {
     try {
       writeSave(+b.dataset.save, session.game, session.renderer);
@@ -343,6 +381,7 @@ refreshSetup();
 
 loadBtn.addEventListener('click', () => { audio.unlock(); openMenu('load'); });
 document.getElementById('settings').addEventListener('click', () => openMenu('settings'));
+document.getElementById('campaign').addEventListener('click', () => { audio.unlock(); openMenu('campaign'); });
 document.getElementById('start').addEventListener('click', () => {
   audio.unlock(); // inside the click, so the browser allows audio
   try { localStorage.setItem('ironfront.setup', JSON.stringify(setup)); } catch { /* storage unavailable */ }
