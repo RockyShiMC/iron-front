@@ -94,7 +94,7 @@ function playSounds() {
   const { game, renderer } = session;
   const w = renderer.viewW, h = renderer.viewH;
   for (const e of game.soundEvents) {
-    if (e.name === 'voice') { audio.unitVoice(e.unit, e.line); continue; }
+    if (e.name === 'voice') { audio.unitVoice(e.unit, e.line, e.id); continue; }
     if (e.x === undefined) { audio.play(e.name); continue; }
     if (!game.isExplored(e.x, e.y)) continue;
     const s = renderer.toScreen(e.x, e.y);

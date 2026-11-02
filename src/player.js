@@ -90,7 +90,7 @@ export class Player {
       const dp = Math.min(rate * dt, 1 - item.progress);
       const cost = def.cost * dp;
       if (this.credits < cost) {
-        if (!this.isAI) g.notify('Insufficient funds', 'warn');
+        if (!this.isAI) g.notify('Insufficient funds', 'warn', 20);
         continue;
       }
       this.credits -= cost;

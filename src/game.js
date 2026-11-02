@@ -359,12 +359,12 @@ export class Game {
     if (e.isBuilding) {
       this.removeBuilding(e);
       this.spawnExplosion(e.x, e.y, 1 + e.w * 0.4, true);
-      if (e.owner === this.human) this.notify('Structure lost', 'alert');
+      if (e.owner === this.human) this.notify('Structure lost', 'alert', 6);
     } else {
       if (e.def.harvester) this.releaseOre(e);
       // aircraft crash to the ground; ships and vehicles burst in place
       this.spawnExplosion(e.x, e.y, e.isInfantry ? 0.25 : e.isNaval ? 0.9 : 0.7, !e.isInfantry);
-      if (e.owner === this.human) this.notify('Unit lost', 'warn', 4);
+      if (e.owner === this.human) this.notify('Unit lost', 'warn', 8);
     }
   }
 
@@ -388,7 +388,7 @@ export class Game {
 
   // A unit of ours answers: line is 'select' | 'move' | 'attack'
   voice(unit, line) {
-    if (this.soundEnabled && unit && unit.owner === this.human) this.soundEvents.push({ name: 'voice', unit: unit.key, line });
+    if (this.soundEnabled && unit && unit.owner === this.human) this.soundEvents.push({ name: 'voice', unit: unit.key, id: unit.id, line });
   }
 
   notify(text, kind = 'info', throttle = 3) {

@@ -1,6 +1,6 @@
 // Procedural sound effects (Web Audio), EVA announcements and unit voice
 // responses (speech synthesis). No audio files: every sound is synthesized.
-import { VOICES } from './config.js';
+import { VOICES, VOICE_COMMON, UNITS } from './config.js';
 
 // What EVA says for each game notification. Messages not listed stay silent.
 const EVA_LINES = {
@@ -22,8 +22,10 @@ const EVA_LINES = {
   'Mission accomplished': 'Mission accomplished.',
   'Mission failed': 'Mission failed.',
 };
-// These interrupt whatever EVA is saying
+// These interrupt whatever EVA is saying, and unit chatter never cuts them off
 const URGENT = new Set(['Our base is under attack!', 'Mission accomplished', 'Mission failed', 'Low power']);
+// EVA won't say the same line again within this many seconds (default 6)
+const EVA_COOLDOWN = { 'Insufficient funds': 20, 'Unit lost': 10, 'Structure lost': 10, 'Low power': 15, 'Ore miner under attack': 25, 'Our base is under attack!': 25 };
 
 // Minimum seconds between two plays of the same sound, so 20 rifles don't clip
 const THROTTLE = { gun: 0.05, cannon: 0.07, impact: 0.06, boom: 0.06, die: 0.08, tesla: 0.08, prism: 0.08, rocket: 0.06, flak: 0.08, bomb: 0.1 };
@@ -53,6 +55,9 @@ export class AudioSystem {
     this.currentKind = null; // 'eva' | 'unit' while something is being said
     this.lastUnitLine = 0;
     this.lastLines = {};
+    this.lastSaid = {}; // EVA line -> time it was last spoken
+    this.clicks = { id: null, n: 0, time: 0 }; // repeated selection of one unit
+    this.currentUrgent = false;
   }
 
   // Must be called from a user gesture (browsers block audio until then)
@@ -93,13 +98,15 @@ export class AudioSystem {
     if (!on && this.currentKind === 'unit') window.speechSynthesis?.cancel();
   }
 
-  // One speech queue is shared: EVA outranks unit chatter, and a new unit line
-  // replaces the previous one instead of queueing behind it.
+  // One speech queue is shared. A unit answering the player cuts off routine EVA
+  // chatter ("Training", "Unit ready") but never an urgent warning, and a new
+  // unit line replaces the previous one instead of queueing behind it.
   speak(text, { voice, pitch = 1, rate = 1, kind, urgent = false }) {
     const synth = window.speechSynthesis;
     if (kind === 'unit') {
-      if (synth.speaking && this.currentKind === 'eva') return false;
+      if (synth.speaking && this.currentKind === 'eva' && this.currentUrgent) return false;
       synth.cancel();
+      this.evaPending = 0;
     } else if (urgent || this.currentKind === 'unit') {
       synth.cancel();
     } else if (this.evaPending >= 2) {
@@ -111,29 +118,39 @@ export class AudioSystem {
     u.rate = rate;
     u.volume = 0.9;
     if (kind === 'eva') this.evaPending++;
-    u.onstart = () => { this.currentKind = kind; };
+    u.onstart = () => { this.currentKind = kind; this.currentUrgent = urgent; };
     u.onend = u.onerror = () => {
       if (kind === 'eva') this.evaPending = Math.max(0, this.evaPending - 1);
       if (this.currentKind === kind) this.currentKind = null;
     };
     this.currentKind = kind;
+    this.currentUrgent = urgent;
     synth.speak(u);
     return true;
   }
 
-  // A unit acknowledges an order: line is 'select' | 'move' | 'attack'
-  unitVoice(key, line) {
+  // A unit acknowledges an order: line is 'select' | 'move' | 'attack'.
+  // id identifies the unit, so clicking the same one over and over annoys it.
+  unitVoice(key, line, id) {
     const v = VOICES[key];
     if (!v || !this.unitVoiceOn || !window.speechSynthesis || !this.ctx) return;
     const now = this.ctx.currentTime;
     if (now - this.lastUnitLine < 0.5) return;
-    const lines = v[line] || v.select;
+    const common = VOICE_COMMON[UNITS[key].faction] || {};
+    if (line === 'select') {
+      const c = this.clicks;
+      this.clicks = c.id === id && now - c.time < 3 ? { id, n: c.n + 1, time: now } : { id, n: 1, time: now };
+      if (this.clicks.n >= 4 && common.annoyed) line = 'annoyed';
+    }
+    // mostly the unit's own lines, sometimes its side's generic ones
+    const own = v[line] || [];
+    const lines = own.length && (Math.random() < 0.65 || !common[line]) ? own : common[line] || v.select;
+    let text = lines[Math.floor(Math.random() * lines.length)];
     // avoid repeating the same line twice in a row
-    let i = Math.floor(Math.random() * lines.length);
-    if (lines.length > 1 && lines[i] === this.lastLines[key]) i = (i + 1) % lines.length;
-    if (this.speak(lines[i], { voice: v.male ? this.maleVoice : this.voice, pitch: v.pitch, rate: v.rate, kind: 'unit' })) {
+    if (lines.length > 1 && text === this.lastLines[key]) text = lines[(lines.indexOf(text) + 1) % lines.length];
+    if (this.speak(text, { voice: v.male ? this.maleVoice : this.voice, pitch: v.pitch, rate: v.rate, kind: 'unit' })) {
       this.lastUnitLine = now;
-      this.lastLines[key] = lines[i];
+      this.lastLines[key] = text;
     }
   }
 
@@ -152,7 +169,10 @@ export class AudioSystem {
   // ---------- EVA ----------
   announce(text) {
     const line = EVA_LINES[text];
-    if (!line || !this.voiceOn || !window.speechSynthesis) return;
+    if (!line || !this.voiceOn || !window.speechSynthesis || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now - (this.lastSaid[text] ?? -999) < (EVA_COOLDOWN[text] ?? 6) && !text.startsWith('Mission')) return;
+    this.lastSaid[text] = now;
     if (this.speak(line, { voice: this.voice, pitch: 0.85, rate: 1.05, kind: 'eva', urgent: URGENT.has(text) })) this.play('blip');
   }
 

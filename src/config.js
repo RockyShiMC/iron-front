@@ -260,6 +260,23 @@ export const VOICES = {
   },
 };
 
+// Lines any unit of a side can use, mixed in with its own so responses vary more.
+// 'annoyed' plays when the player keeps clicking the same unit.
+export const VOICE_COMMON = {
+  allied: {
+    select: ['Ready.', 'Yes, commander?', 'Awaiting orders.', 'Reporting.', 'Standing by.', 'What do you need?'],
+    move: ['Acknowledged.', 'Affirmative.', 'Moving.', 'You got it.', 'On the double.'],
+    attack: ['Engaging.', 'Attacking.', 'Weapons hot.', 'Going in.'],
+    annoyed: ['I heard you the first time.', 'Yes, yes, I am ready.', 'Is there a problem, commander?', 'Do you mind?'],
+  },
+  soviet: {
+    select: ['Ready, comrade.', 'Da?', 'Awaiting orders.', 'Reporting for duty.', 'For the Union.', 'Yes, comrade general?'],
+    move: ['Da!', 'Moving.', 'As you command.', 'Right away.', 'Understood.'],
+    attack: ['Attacking!', 'For the Motherland!', 'Destroy them!', 'No mercy!'],
+    annoyed: ['I am ready, comrade!', 'Enough clicking!', 'You test my patience.', 'Comrade, please.'],
+  },
+};
+
 // AI toughness. think: seconds between decisions; firstAttack / waveEvery: seconds;
 // income / build: multipliers on harvesting and production speed;
 // trickle: credits per second so the AI never stalls completely.
