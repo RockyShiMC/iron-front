@@ -306,11 +306,15 @@ html, body {
 .panel .faction.allied:hover { box-shadow: 0 0 16px rgba(91, 155, 232, 0.6); }
 .panel .faction.soviet { background: linear-gradient(160deg, #8c2a1b, #4d140c); border-color: #e0553e; }
 .panel .faction.soviet:hover { box-shadow: 0 0 16px rgba(224, 85, 62, 0.6); }
+.panel .faction.syndicate { background: linear-gradient(160deg, #1f6f69, #10302e); border-color: #3fd6c8; }
+.panel .faction.syndicate:hover { box-shadow: 0 0 16px rgba(63, 214, 200, 0.6); }
 
 /* Sidebar accent follows the chosen faction */
 body[data-faction="allied"] #sidebar { border-left-color: #2f5c92; }
 body[data-faction="soviet"] #sidebar { border-left-color: #8c2a1b; }
 body[data-faction="soviet"] #tabs button.active { background: #5a2a22; border-color: #b0503e; }
+body[data-faction="syndicate"] #sidebar { border-left-color: #1f8f86; }
+body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border-color: #3fb3a8; }
 
 /* Secondary buttons in panels */
 .panel button.secondary { background: var(--panel-2); border-color: var(--edge); color: var(--text); }

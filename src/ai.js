@@ -146,7 +146,7 @@ export class AI {
       const st = p.powers[id];
       if (!st || st.charge < pw.charge) continue;
       let t = null;
-      if (pw.kind === 'strike' || pw.kind === 'missile') t = this.richestSpot(pw.radius);
+      if (['strike', 'missile', 'kinetic', 'emp'].includes(pw.kind)) t = this.richestSpot(pw.radius);
       else if (pw.kind === 'paradrop') t = this.nearestEnemy(this.conyard() || p.rally, (e) => e.isUnit && e.def.harvester) || this.pickTarget(this.conyard() || p.rally);
       else if (pw.kind === 'reveal') t = this.nearestEnemy({ x: g.map.w / 2, y: g.map.w / 2 }, (e) => e.isBuilding);
       if (t) g.usePower(p, id, t.x, t.y);
@@ -345,7 +345,7 @@ export class AI {
     let best = null, bd = Infinity;
     for (const list of [this.g.buildings, this.g.units]) {
       for (const e of list) {
-        if (e.dead || !this.g.hostile(e.owner, this.p) || !filter(e)) continue;
+        if (e.dead || !this.g.hostile(e.owner, this.p) || (e.isUnit && this.g.hidden(e)) || !filter(e)) continue;
         const d = dist(from.x, from.y, e.x, e.y);
         if (d < bd) { bd = d; best = e; }
       }

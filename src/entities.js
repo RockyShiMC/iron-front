@@ -191,6 +191,8 @@ export class Unit extends Entity {
 
   // ---------- update ----------
   update(dt, g) {
+    // knocked out by an EMP: no moving, no shooting
+    if (this.empUntil > g.time && !this.isInfantry) { this.moving = false; return; }
     if (this.cooldown > 0) this.cooldown -= dt;
     const heal = (this.def.selfHeal || 0) + RANKS[this.rank || 0].heal * this.maxHp;
     if (heal && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + heal * dt);
@@ -602,6 +604,7 @@ export class Building extends Entity {
       this.charge.t -= dt;
       if (this.charge.t <= 0) { const by = this.charge.by; this.charge = null; g.kill(this, by?.dead ? null : by); return; }
     }
+    if (this.empUntil > g.time) return; // defenses are offline under an EMP
     if (this.garrison?.length) g.updateGarrison(this, dt);
 
     if (this.repairing) {

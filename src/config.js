@@ -18,6 +18,7 @@ export const WARHEADS = {
   flak: { infantry: 0.4, vehicle: 0.1, building: 0.1, aircraft: 1.6, ship: 0.2 },
   bomb: { infantry: 0.6, vehicle: 1.0, building: 1.4, aircraft: 0, ship: 1.2 },
   sniper: { infantry: 1.0, vehicle: 0.05, building: 0.03, aircraft: 0, ship: 0.05 },
+  laser: { infantry: 0.7, vehicle: 1.1, building: 0.7, aircraft: 0.8, ship: 1.0 },
   // superweapons hurt everything, aircraft included
   super: { infantry: 1.0, vehicle: 1.0, building: 1.0, aircraft: 0.8, ship: 1.0 },
 };
@@ -48,6 +49,19 @@ export const WEAPONS = {
   // heroes
   sniperRifle: { damage: 150, range: 7.5, cooldown: 1.3, warhead: 'sniper', projectile: 'tracer' },
   heavyMG: { damage: 16, range: 5, cooldown: 0.22, warhead: 'bullet', projectile: 'tracer', air: true, splash: 0.5 },
+  // Syndicate (laser = instant teal beam, rail = instant slug)
+  smg: { damage: 9, range: 4, cooldown: 0.5, warhead: 'bullet', projectile: 'tracer', air: true },
+  laserRifle: { damage: 34, range: 5, cooldown: 1.6, warhead: 'laser', projectile: 'laser', air: true },
+  specterLaser: { damage: 70, range: 5.5, cooldown: 1.0, warhead: 'laser', projectile: 'laser' },
+  skimmerLaser: { damage: 28, range: 5, cooldown: 1.1, warhead: 'laser', projectile: 'laser' },
+  railgun: { damage: 75, range: 8.5, cooldown: 3, warhead: 'shell', projectile: 'rail', splash: 0.8 },
+  droneLaser: { damage: 12, range: 4, cooldown: 0.6, warhead: 'laser', projectile: 'laser', air: true },
+  waspLaser: { damage: 24, range: 4.5, cooldown: 0.8, warhead: 'laser', projectile: 'laser' },
+  aaMissile: { damage: 60, range: 6, cooldown: 0.5, warhead: 'rocket', projectile: 'rocket', speed: 14, air: true, ground: false },
+  hydroLaser: { damage: 18, range: 5.5, cooldown: 0.6, warhead: 'laser', projectile: 'laser', air: true },
+  cruiserLaser: { damage: 70, range: 8, cooldown: 2.6, warhead: 'laser', projectile: 'laser', air: true },
+  turretLaser: { damage: 26, range: 6, cooldown: 0.9, warhead: 'laser', projectile: 'laser', air: true },
+  railCannon: { damage: 140, range: 8.5, cooldown: 3, warhead: 'shell', projectile: 'rail', splash: 0.9 },
   // ships
   patrolGun: { damage: 14, range: 5.5, cooldown: 0.4, warhead: 'bullet', projectile: 'tracer', air: true },
   frigateMissile: { damage: 55, range: 8, cooldown: 2.5, warhead: 'rocket', projectile: 'rocket', speed: 11, air: true },
@@ -122,6 +136,36 @@ export const UNITS = {
     radius: 0.42, size: 0.55, look: 'harvester', prereq: ['factory', 'refinery'],
   },
 
+  // ---- Syndicate (hover: rides on pads instead of tracks; cloak: hidden until it fires or an enemy gets close) ----
+  operative: {
+    name: 'Operative', faction: 'syndicate', category: 'infantry', cost: 180, time: 4.5, hp: 110, speed: 1.45,
+    sight: 6, armor: 'infantry', weapon: 'smg', radius: 0.15, prereq: ['barracks'], gear: 'rifle',
+  },
+  lancer: {
+    name: 'Lancer', faction: 'syndicate', category: 'infantry', cost: 450, time: 7, hp: 120, speed: 1.25,
+    sight: 6, armor: 'infantry', weapon: 'laserRifle', radius: 0.15, prereq: ['barracks'], gear: 'laser',
+  },
+  specter: {
+    name: 'Specter', faction: 'syndicate', category: 'infantry', cost: 1500, time: 15, hp: 220, speed: 1.7,
+    sight: 9, armor: 'infantry', weapon: 'specterLaser', radius: 0.16, prereq: ['barracks', 'radar'], gear: 'specter',
+    hero: true, unique: true, demolish: true, cloak: true, selfHeal: 2,
+  },
+  skimmer: {
+    name: 'Skimmer', faction: 'syndicate', category: 'vehicle', cost: 650, time: 9, hp: 260, speed: 2.8,
+    sight: 7, armor: 'vehicle', weapon: 'skimmerLaser', turret: true, radius: 0.33, size: 0.4,
+    look: 'tank', barrels: 1, hover: true, prereq: ['factory'],
+  },
+  railPlatform: {
+    name: 'Rail Platform', faction: 'syndicate', category: 'vehicle', cost: 1300, time: 15, hp: 380, speed: 1.3,
+    sight: 9, armor: 'vehicle', weapon: 'railgun', turret: true, radius: 0.45, size: 0.55,
+    look: 'tank', barrels: 1, hover: true, longBarrel: true, prereq: ['factory', 'radar'],
+  },
+  droneMiner: {
+    name: 'Drone Miner', faction: 'syndicate', category: 'vehicle', cost: 1200, time: 12, hp: 480, speed: 2.4,
+    sight: 5, armor: 'vehicle', harvester: true, capacity: 400, mineRate: 45, weapon: 'droneLaser', turret: true,
+    radius: 0.4, size: 0.48, look: 'harvester', hover: true, prereq: ['factory', 'refinery'],
+  },
+
   // ---- Air (domain 'air': fly over everything, only anti-air weapons can hit them) ----
   hawkGunship: {
     name: 'Hawk Gunship', faction: 'allied', category: 'air', domain: 'air', cost: 1000, time: 12, hp: 220,
@@ -144,6 +188,17 @@ export const UNITS = {
     prereq: ['airfield'],
   },
 
+  wasp: {
+    name: 'Wasp Drone', faction: 'syndicate', category: 'air', domain: 'air', cost: 900, time: 11, hp: 200,
+    speed: 4.2, sight: 8, armor: 'aircraft', weapon: 'waspLaser', radius: 0.35, size: 0.4, look: 'heli',
+    prereq: ['airfield'],
+  },
+  interceptor: {
+    name: 'Interceptor', faction: 'syndicate', category: 'air', domain: 'air', cost: 1100, time: 12, hp: 200,
+    speed: 6.5, sight: 9, armor: 'aircraft', weapon: 'aaMissile', ammo: 4, radius: 0.4, size: 0.45, look: 'jet',
+    prereq: ['airfield'],
+  },
+
   // ---- Navy (domain 'sea': water only) ----
   patrolBoat: {
     name: 'Patrol Boat', faction: 'allied', category: 'naval', domain: 'sea', cost: 600, time: 8, hp: 300,
@@ -159,6 +214,16 @@ export const UNITS = {
     name: 'Gunboat', faction: 'soviet', category: 'naval', domain: 'sea', cost: 700, time: 9, hp: 450,
     speed: 2.6, sight: 7, armor: 'ship', weapon: 'gunboatCannon', turret: true, radius: 0.45, size: 0.55,
     look: 'boat', prereq: ['shipyard'],
+  },
+  hydrofoil: {
+    name: 'Hydrofoil', faction: 'syndicate', category: 'naval', domain: 'sea', cost: 600, time: 8, hp: 260,
+    speed: 4, sight: 7, armor: 'ship', weapon: 'hydroLaser', turret: true, radius: 0.4, size: 0.5,
+    look: 'boat', prereq: ['shipyard'],
+  },
+  laserCruiser: {
+    name: 'Laser Cruiser', faction: 'syndicate', category: 'naval', domain: 'sea', cost: 1500, time: 16, hp: 650,
+    speed: 2, sight: 9, armor: 'ship', weapon: 'cruiserLaser', turret: true, radius: 0.55, size: 0.8,
+    look: 'frigate', prereq: ['shipyard', 'radar'],
   },
   battleship: {
     name: 'Battleship', faction: 'soviet', category: 'naval', domain: 'sea', cost: 2000, time: 20, hp: 1200,
@@ -230,6 +295,66 @@ export const VOICES = {
     select: ['The Iron Major is here.', 'Who dares?', 'Point me at them.'],
     move: ['Marching.', 'Nothing stops me.', 'Clear the way!'],
     attack: ['Mow them down!', 'Feel the iron!', 'Fire everything!'],
+  },
+  operative: {
+    pitch: 1.0, rate: 1.2, male: false,
+    select: ['Operative online.', 'Contract active.', 'Awaiting tasking.'],
+    move: ['Relocating.', 'Copy that.', 'Moving to waypoint.'],
+    attack: ['Engaging target.', 'Neutralizing.', 'Hostile acquired.'],
+  },
+  lancer: {
+    pitch: 0.85, rate: 1.05, male: true,
+    select: ['Lancer charged.', 'Beam ready.', 'Point me at armor.'],
+    move: ['Repositioning.', 'On the move.', 'Copy.'],
+    attack: ['Burning through!', 'Beam on target!', 'Cutting it open!'],
+  },
+  specter: {
+    pitch: 0.9, rate: 0.95, male: false,
+    select: ['You never saw me.', 'Specter, standing by.', 'In the shadows.'],
+    move: ['Fading out.', 'Silent approach.', 'Moving unseen.'],
+    attack: ['Lights out.', 'Charge planted.', 'Clean kill.'],
+  },
+  skimmer: {
+    pitch: 1.0, rate: 1.25, male: true,
+    select: ['Skimmer ready.', 'Hover drive spooled.', 'Fast and light.'],
+    move: ['Skimming.', 'Full thrust.', 'On my way.'],
+    attack: ['Lasers hot!', 'Strafing!', 'Target painted!'],
+  },
+  railPlatform: {
+    pitch: 0.6, rate: 0.95, male: true,
+    select: ['Rail platform charged.', 'Capacitors full.', 'Long range ready.'],
+    move: ['Repositioning platform.', 'Moving.', 'Adjusting firing line.'],
+    attack: ['Rail away!', 'Firing slug!', 'Target locked, firing!'],
+  },
+  droneMiner: {
+    pitch: 1.3, rate: 1.2, male: false,
+    select: ['Drone miner active.', 'Collection protocol ready.', 'Beep. Ready.'],
+    move: ['Rerouting.', 'Path computed.', 'Proceeding.'],
+    attack: ['Defensive laser engaged.', 'Protecting assets.'],
+  },
+  wasp: {
+    pitch: 1.4, rate: 1.3, male: false,
+    select: ['Wasp drone airborne.', 'Swarm ready.', 'Buzzing.'],
+    move: ['Vectoring.', 'Flying.', 'En route.'],
+    attack: ['Stinging!', 'Engaging.', 'Laser sweep!'],
+  },
+  interceptor: {
+    pitch: 1.0, rate: 1.3, male: true,
+    select: ['Interceptor ready.', 'Clearing the skies.', 'Missiles armed.'],
+    move: ['Afterburners.', 'Climbing.', 'Copy.'],
+    attack: ['Fox three!', 'Splash one!', 'Bandit locked!'],
+  },
+  hydrofoil: {
+    pitch: 1.1, rate: 1.2, male: true,
+    select: ['Hydrofoil ready.', 'Up on the foils.', 'Fast attack craft.'],
+    move: ['Skimming the waves.', 'Full speed.', 'Underway.'],
+    attack: ['Lasers firing!', 'Engaging!', 'Hit them!'],
+  },
+  laserCruiser: {
+    pitch: 0.55, rate: 0.9, male: true,
+    select: ['Laser cruiser on station.', 'Emitters charged.', 'Ready, admiral.'],
+    move: ['Making way.', 'Setting course.', 'Ahead full.'],
+    attack: ['Main emitter firing!', 'Burn them!', 'Broadside lasers!'],
   },
   rhino: {
     pitch: 0.6, rate: 1.0, male: true,
@@ -315,6 +440,13 @@ export const VOICE_COMMON = {
     attack: ['Attacking!', 'For the Motherland!', 'Destroy them!', 'No mercy!'],
     annoyed: ['I am ready, comrade!', 'Enough clicking!', 'You test my patience.', 'Comrade, please.'],
     promoted: ['For the glory of the Union!', 'I am honored, comrade!', 'Stronger than ever!'],
+  },
+  syndicate: {
+    select: ['Ready.', 'Contract confirmed.', 'Online.', 'Awaiting tasking.', 'Yes, director?'],
+    move: ['Affirmative.', 'Executing.', 'Copy that.', 'Moving.'],
+    attack: ['Engaging.', 'Target acquired.', 'Eliminating.', 'Neutralizing hostiles.'],
+    annoyed: ['This is not in my contract.', 'Billing you for that.', 'Input received. Repeatedly.'],
+    promoted: ['Performance bonus accepted.', 'Upgrade complete.', 'Efficiency improved.'],
   },
 };
 
@@ -406,6 +538,23 @@ export const BUILDINGS = {
     name: 'Tesla Coil', faction: 'soviet', role: 'advDefense', w: 1, h: 1, hp: 650, cost: 1500, time: 14,
     power: -75, sight: 7, height: 44, weapon: 'teslaCoilBolt', prereq: ['radar'],
   },
+  // ---- Syndicate ----
+  fusionCore: {
+    name: 'Fusion Core', faction: 'syndicate', role: 'power', w: 2, h: 2, hp: 800, cost: 1100, time: 10,
+    power: 200, sight: 5, height: 24, prereq: ['conyard'],
+  },
+  laserTurret: {
+    name: 'Laser Turret', faction: 'syndicate', role: 'defense', w: 1, h: 1, hp: 420, cost: 600, time: 8, power: -15,
+    sight: 6, height: 18, weapon: 'turretLaser', prereq: ['barracks'],
+  },
+  railCannon: {
+    name: 'Rail Cannon', faction: 'syndicate', role: 'advDefense', w: 1, h: 1, hp: 650, cost: 1500, time: 14,
+    power: -75, sight: 9, height: 26, weapon: 'railCannon', prereq: ['radar'],
+  },
+  kineticArray: {
+    name: 'Kinetic Array', faction: 'syndicate', role: 'superweapon', w: 3, h: 3, hp: 1600, cost: 2500, time: 30,
+    power: -100, sight: 6, height: 20, prereq: ['radar', 'factory'],
+  },
   // ---- Shared: air, sea, anti-air ----
   airfield: {
     name: 'Airfield', w: 3, h: 3, hp: 1000, cost: 1500, time: 14, power: -40, sight: 6,
@@ -476,6 +625,20 @@ export const FACTIONS = {
       { id: 'naval', label: 'Navy', items: ['gunboat', 'battleship'] },
     ],
   },
+  syndicate: {
+    name: 'Syndicate',
+    color: '#2bb3a8',
+    blurb: 'Corporate mercenaries. Lasers, fast hover vehicles, EMP and a cloaked Specter.',
+    harvester: 'droneMiner',
+    start: { tank: 'skimmer', infantry: 'operative' },
+    tabs: [
+      { id: 'building', label: 'Base', items: ['fusionCore', 'refinery', 'barracks', 'factory', 'radar', 'repairDepot', 'airfield', 'shipyard', 'laserTurret', 'railCannon', 'aaBattery', 'wall', 'kineticArray'] },
+      { id: 'infantry', label: 'Infantry', items: ['operative', 'lancer', 'engineer', 'specter'] },
+      { id: 'vehicle', label: 'Vehicles', items: ['skimmer', 'railPlatform', 'droneMiner'] },
+      { id: 'air', label: 'Air', items: ['wasp', 'interceptor'] },
+      { id: 'naval', label: 'Navy', items: ['hydrofoil', 'laserCruiser'] },
+    ],
+  },
 };
 
 // Support powers. Each charges while its owner has the building (and enough power),
@@ -492,6 +655,18 @@ export const POWERS = {
   },
   reconSweep: { name: 'Recon Sweep', faction: 'allied', building: 'radar', charge: 120, kind: 'reveal', radius: 10 },
   paradrop: { name: 'Paradrop', faction: 'soviet', building: 'radar', charge: 180, kind: 'paradrop', unit: 'conscript', count: 5, delay: 2 },
+  kineticStrike: {
+    name: 'Kinetic Strike', faction: 'syndicate', building: 'kineticArray', charge: 360, kind: 'kinetic',
+    damage: 420, radius: 4, count: 7, delay: 2.5, superweapon: true, // several rods, each with a small blast
+  },
+  empBurst: { name: 'EMP Burst', faction: 'syndicate', building: 'radar', charge: 150, kind: 'emp', radius: 4, duration: 12, delay: 0.5 },
+};
+
+// Computer opponents' sides by seat, depending on yours (seat 1 is the classic rival)
+export const RIVALS = {
+  allied: ['soviet', 'syndicate', 'allied'],
+  soviet: ['allied', 'syndicate', 'soviet'],
+  syndicate: ['allied', 'soviet', 'syndicate'],
 };
 
 // Look up the faction's building that fills a role (e.g. 'power' -> 'teslaReactor').

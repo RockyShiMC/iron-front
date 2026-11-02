@@ -14,6 +14,7 @@ const CHUNK_BLEED = 0.08;
 const STYLE = {
   allied: { wall: '#9b9a90', roof: '#76766e' },
   soviet: { wall: '#8a7466', roof: '#584b44' },
+  syndicate: { wall: '#6c7a80', roof: '#3f4b52' },
 };
 
 export class Renderer {
@@ -373,6 +374,7 @@ export class Renderer {
     const air = [];
     for (const u of g.units) {
       if (u.owner !== g.human && !g.isExplored(u.x, u.y)) continue;
+      if (g.hidden(u) && !g.allied(u.owner, g.human)) continue;
       // parked aircraft sit with the ground layer; flying ones go on top
       if (u.isAir && u.z > 4) air.push(u);
       else list.push({ d: u.x + u.y + (u.isAir ? 0.5 : 0), e: u });
@@ -380,7 +382,12 @@ export class Renderer {
     list.sort((a, b) => a.d - b.d);
     for (const { e } of list) {
       if (e.isBuilding) this.drawBuilding(e);
-      else if (this.onScreen(this.toScreen(e.x, e.y))) this.drawUnit(e);
+      else if (this.onScreen(this.toScreen(e.x, e.y))) {
+        if (g.hidden(e)) ctx.globalAlpha = 0.4; // your own cloaked units shimmer
+        this.drawUnit(e);
+        ctx.globalAlpha = 1;
+      }
+      if (e.empUntil > g.time && Math.random() < 0.35) this.empSpark(e);
     }
     air.sort((a, b) => a.x + a.y - (b.x + b.y));
     for (const u of air) if (this.onScreen(this.toScreen(u.x, u.y, u.z))) this.drawAircraft(u);
@@ -939,6 +946,56 @@ export class Renderer {
         if (powered && Math.random() < 0.08) this.g.effects.push({ type: 'arc', x: b.x, y: b.y, z: H, r: 0.6, life: 0.12, max: 0.12 });
         break;
       }
+      case 'fusionCore': {
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        this.teamStripe(x0, y0, x1, y1, H, team);
+        // containment ring with a glowing core
+        const c = s(b.x, b.y, H + 12 * k);
+        ctx.strokeStyle = '#2a3236'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, 16, 8, 0, 0, Math.PI * 2); ctx.stroke();
+        const glow = powered ? 0.6 + Math.sin(b.anim * 5) * 0.25 : 0.2;
+        const grd = ctx.createRadialGradient(c.x, c.y - 4, 1, c.x, c.y - 4, 12);
+        grd.addColorStop(0, `rgba(220,255,250,${glow})`);
+        grd.addColorStop(1, 'rgba(60,220,200,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath(); ctx.arc(c.x, c.y - 4, 12, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'laserTurret': {
+        this.box(x0 + 0.15, y0 + 0.15, x1 - 0.15, y1 - 0.15, 0, H * 0.6, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        const c = s(b.x, b.y, H * 0.6 + 4);
+        ctx.fillStyle = shade(team, -0.2);
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, 8, 5, 0, 0, Math.PI * 2); ctx.fill();
+        this.gunBarrel(b, H * 0.6 + 5, 0.5, 4, '#2a3236');
+        const lens = s(b.x + Math.cos(b.turretDir) * 0.5, b.y + Math.sin(b.turretDir) * 0.5, H * 0.6 + 5);
+        ctx.fillStyle = powered ? 'rgba(120,255,230,0.9)' : '#444';
+        ctx.beginPath(); ctx.arc(lens.x, lens.y, 2.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'railCannon': {
+        this.box(x0 + 0.1, y0 + 0.1, x1 - 0.1, y1 - 0.1, 0, H * 0.5, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        const c = s(b.x, b.y, H * 0.5 + 3);
+        ctx.fillStyle = shade(team, -0.3);
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
+        this.gunBarrel(b, H * 0.5 + 6, 0.95, 5, '#20262a', 0.07);
+        this.gunBarrel(b, H * 0.5 + 6, 0.95, 5, '#20262a', -0.07);
+        break;
+      }
+      case 'kineticArray': {
+        const ready = this.powerReady(b);
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
+        this.teamStripe(x0, y0, x1, y1, H, team);
+        // two launch rails angled at the sky
+        for (const off of [-0.5, 0.5]) {
+          const a = s(b.x + off, b.y - off, H), t2 = s(b.x + off - 0.3, b.y - off - 0.3, H + 46 * k);
+          ctx.strokeStyle = '#2a3236'; ctx.lineWidth = 5;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(t2.x, t2.y); ctx.stroke();
+          ctx.strokeStyle = ready ? `rgba(120,255,230,${0.6 + Math.sin(b.anim * 6) * 0.3})` : 'rgba(80,120,120,0.6)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(t2.x, t2.y); ctx.stroke();
+        }
+        break;
+      }
       case 'wall': {
         // concrete segment, joined to walls to the east and south
         const m = this.g.map;
@@ -1089,6 +1146,14 @@ export class Renderer {
       ctx.textAlign = 'center';
       if (Math.floor(this.time * 3) % 2) ctx.fillText('🔧', p.x, p.y);
     }
+  }
+
+  // Little blue arcs crawling over something knocked out by an EMP
+  empSpark(e) {
+    const z = e.isBuilding ? e.def.height * 0.6 : e.isAir ? e.z : 8;
+    const p = this.toScreen(e.x, e.y, z);
+    const a = Math.random() * Math.PI * 2;
+    this.lightning(p, { x: p.x + Math.cos(a) * 14, y: p.y + Math.sin(a) * 8 }, 0.7);
   }
 
   // Is the support power this building provides charged?
@@ -1278,7 +1343,8 @@ export class Renderer {
     const L = u.def.size, W = L * 0.68;
     // Chrono Miner flickers while charging its teleport
     if (u.hstate === 'chrono') ctx.globalAlpha = 0.3 + Math.random() * 0.5;
-    this.treads(u, L, W);
+    if (u.def.hover) this.hoverPads(u, L, W);
+    else this.treads(u, L, W);
     if (u.def.look === 'harvester') {
       this.drawHarvester(u, L, W, team);
       ctx.globalAlpha = 1;
@@ -1316,12 +1382,25 @@ export class Renderer {
         this.cannon(u, 13, L * 1.3, 3, 0.09);
         this.cannon(u, 13, L * 1.3, 3, -0.09);
       } else {
-        this.cannon(u, 13, L * 1.35, L > 0.45 ? 4 : 3, 0);
+        this.cannon(u, 13, L * (u.def.longBarrel ? 1.9 : 1.35), L > 0.45 ? 4 : 3, 0);
       }
     };
     if (!facing) barrels();
     this.turret(u, L, team);
     if (facing) barrels();
+  }
+
+  // Hover vehicles ride on two glowing pads
+  hoverPads(u, L, W) {
+    const ctx = this.ctx;
+    const c = Math.cos(u.dir), s = Math.sin(u.dir);
+    const g = this.toScreen(u.x, u.y, 0);
+    ctx.fillStyle = `rgba(80,240,220,${0.18 + Math.sin(this.time * 8 + u.id) * 0.06})`;
+    ctx.beginPath(); ctx.ellipse(g.x, g.y, L * 34, L * 17, 0, 0, Math.PI * 2); ctx.fill();
+    for (const side of [-1, 1]) {
+      const cx = u.x - s * W * 0.7 * side, cy = u.y + c * W * 0.7 * side;
+      this.poly(this.quad(cx, cy, u.dir, L * 0.85, W * 0.25, 4), '#2a3034', 'rgba(120,255,235,0.6)');
+    }
   }
 
   // Two tracks with segments that roll as the vehicle moves
@@ -1475,6 +1554,17 @@ export class Renderer {
       ctx.beginPath(); ctx.ellipse(0.5, -16, 3.2, 1.5, -0.2, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#111';
       ctx.fillRect(-1.5 + vx, -14.6, 3, 1);
+    } else if (gear === 'specter') {
+      ctx.fillStyle = '#1b1f24';
+      ctx.beginPath(); ctx.arc(0, -14.5, 3.1, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = 'rgba(120,255,230,0.9)';
+      ctx.fillRect(-1.6 + vx, -14.6, 3.2, 1);
+    } else if (u.owner.faction === 'syndicate') {
+      // slate helmet with a teal visor
+      ctx.fillStyle = '#4a565c';
+      ctx.beginPath(); ctx.arc(0, -14.6, 3, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = 'rgba(90,240,220,0.85)';
+      ctx.fillRect(-1.5 + vx, -14.4, 3, 1);
     } else if (gear === 'heavy') {
       ctx.fillStyle = '#2d2f33';
       ctx.beginPath(); ctx.arc(0, -14.5, 3.2, Math.PI, 0); ctx.fill();
@@ -1502,7 +1592,7 @@ export class Renderer {
       ctx.fillStyle = '#b8402e';
       ctx.fillRect(sx + vx * 3 - 2, sy + 2, 4, 3);
     } else {
-      ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : '#151515';
+      ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : gear === 'laser' ? '#3d8f88' : '#151515';
       ctx.lineWidth = gear === 'rifle' || gear === 'sniper' ? 1.4 : 2.6;
       const wl = gear === 'tesla' ? 5 : gear === 'rocket' ? 9 : gear === 'sniper' ? 11 : gear === 'heavy' ? 8 : 7.5;
       ctx.beginPath(); ctx.moveTo(sx - vx * 2, sy - vy * 2); ctx.lineTo(sx + vx * wl, sy + vy * wl); ctx.stroke();
@@ -1558,6 +1648,16 @@ export class Renderer {
         grd.addColorStop(1, 'rgba(120,200,255,0)');
         ctx.fillStyle = grd;
         ctx.fillRect(p.x - w, -10, w * 2, p.y + 10);
+      } else if (pw.kind === 'kinetic' && st.t < 1) {
+        // glowing rods streaking down
+        for (let k = 0; k < pw.count; k++) {
+          const a = k * 2.4, r = (k / pw.count) * pw.radius;
+          const g0 = this.toScreen(st.x + Math.cos(a) * r, st.y + Math.sin(a) * r, st.t * 600);
+          ctx.strokeStyle = 'rgba(255,240,200,0.9)'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(g0.x, g0.y - 40); ctx.lineTo(g0.x, g0.y); ctx.stroke();
+          ctx.fillStyle = 'rgba(255,180,80,0.8)';
+          ctx.beginPath(); ctx.arc(g0.x, g0.y, 3, 0, Math.PI * 2); ctx.fill();
+        }
       } else if (pw.kind === 'missile' && st.t < 1.5) {
         const m = this.toScreen(st.x, st.y, (st.t / 1.5) * 500);
         ctx.fillStyle = '#ddd';
@@ -1604,6 +1704,40 @@ export class Renderer {
           ctx.lineWidth = 2.5;
           ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
           ctx.lineCap = 'butt';
+          break;
+        }
+        case 'laser': {
+          const q = this.toScreen(e.x2, e.y2, e.z2);
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = `rgba(60,240,210,${t * 0.45})`;
+          ctx.lineWidth = 5 * t + 1.5;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          ctx.strokeStyle = `rgba(220,255,250,${t})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          ctx.lineCap = 'butt';
+          break;
+        }
+        case 'rail': {
+          const q = this.toScreen(e.x2, e.y2, e.z2);
+          ctx.strokeStyle = `rgba(255,255,255,${t})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          // a spiral of sparks along the slug's path
+          ctx.fillStyle = `rgba(150,220,255,${t * 0.8})`;
+          for (let k = 0; k <= 12; k++) {
+            const f = k / 12, a = f * 20 + this.time * 10;
+            ctx.fillRect(p.x + (q.x - p.x) * f + Math.cos(a) * 3, p.y + (q.y - p.y) * f + Math.sin(a) * 3, 2, 2);
+          }
+          break;
+        }
+        case 'empwave': {
+          const rr = e.r * (1 - t * 0.6) * HALF_W * 1.4;
+          ctx.strokeStyle = `rgba(120,200,255,${t})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, rr, rr / 2, 0, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = `rgba(120,200,255,${t * 0.15})`;
+          ctx.fill();
           break;
         }
         case 'promote': {

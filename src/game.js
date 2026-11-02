@@ -1,4 +1,4 @@
-import { BUILDINGS, UNITS, WARHEADS, FACTIONS, DIFFICULTY, RANKS, POWERS, MODES, PLAYER_COLORS } from './config.js';
+import { BUILDINGS, UNITS, WARHEADS, FACTIONS, DIFFICULTY, RANKS, POWERS, MODES, PLAYER_COLORS, RIVALS } from './config.js';
 import { GameMap, WATER, BRIDGE } from './map.js';
 import { MAPS } from './maps.js';
 import { Pathfinder } from './pathfinding.js';
@@ -7,8 +7,8 @@ import { Player, categoryOf } from './player.js';
 import { AI } from './ai.js';
 import { dist, distToEntity, mulberry32 } from './util.js';
 
-const FIRE_SOUND = { tracer: 'gun', shell: 'cannon', rocket: 'rocket', bolt: 'tesla', beam: 'prism', flak: 'flak', bomb: 'bomb' };
-const INSTANT = new Set(['tracer', 'bolt', 'beam', 'flak']);
+const FIRE_SOUND = { tracer: 'gun', shell: 'cannon', rocket: 'rocket', bolt: 'tesla', beam: 'prism', flak: 'flak', bomb: 'bomb', laser: 'prism', rail: 'cannon' };
+const INSTANT = new Set(['tracer', 'bolt', 'beam', 'flak', 'laser', 'rail']);
 
 // Formation slot offsets around a move target, nearest first
 const FORMATION = [];
@@ -31,11 +31,10 @@ export class Game {
     const teams = MODES[mode].teams;
     this.map = new GameMap(map, seed, teams.length);
     this.pathfinder = new Pathfinder(this.map);
-    // You, then the computer players (alternating sides), then the civilians
-    const other = faction === 'allied' ? 'soviet' : 'allied';
+    // You, then the computer players (rival sides in turn), then the civilians
     const colors = PLAYER_COLORS.filter((c) => c.color !== FACTIONS[faction].color);
     this.players = teams.map((team, i) => {
-      const p = new Player(i, i === 0 ? faction : i % 2 ? other : faction, i > 0);
+      const p = new Player(i, i === 0 ? faction : RIVALS[faction][(i - 1) % 3], i > 0);
       p.team = team;
       p.seat = MODES[mode].seats?.[i] ?? i;
       if (i > 0) {
@@ -355,7 +354,7 @@ export class Game {
     let best = null, bd = Infinity;
     const w = e.weapon;
     for (const u of this.units) {
-      if (u.dead || !this.hostile(u.owner, e.owner) || !this.canHit(w, u)) continue;
+      if (u.dead || !this.hostile(u.owner, e.owner) || !this.canHit(w, u) || this.hidden(u)) continue;
       const d = dist(x, y, u.x, u.y);
       if (d <= range && d < bd) { bd = d; best = u; }
     }
@@ -375,6 +374,7 @@ export class Game {
   fire(shooter, target) {
     const w = shooter.weapon;
     shooter.cooldown = w.cooldown * RANKS[shooter.rank || 0].reload;
+    shooter.lastFired = this.time; // firing gives away a cloaked unit
     const c = this.entityCenter(target);
     const aim = shooter.turretDir ?? shooter.dir;
     const reach = shooter.isInfantry ? 0.2 : shooter.isBuilding ? 0.45 : 0.5;
@@ -387,7 +387,7 @@ export class Game {
     const kind = w.projectile;
     if (shooter.ammo !== undefined && shooter.ammo !== Infinity) shooter.ammo--;
     this.sound(FIRE_SOUND[kind], sx, sy);
-    const flashColor = kind === 'bolt' ? '140,200,255' : kind === 'beam' ? '200,240,255' : '255,230,140';
+    const flashColor = kind === 'bolt' ? '140,200,255' : kind === 'beam' ? '200,240,255' : kind === 'laser' ? '120,255,230' : '255,230,140';
     if (kind !== 'bomb') this.effects.push({ type: 'flash', x: sx, y: sy, z: sz, life: 0.1, max: 0.1, size: kind === 'tracer' ? 4 : 9, color: flashColor });
 
     if (INSTANT.has(kind)) {
@@ -399,7 +399,7 @@ export class Game {
         return;
       }
       const jx = kind === 'tracer' ? (Math.random() - 0.5) * 0.2 : 0, jy = kind === 'tracer' ? (Math.random() - 0.5) * 0.2 : 0;
-      const life = kind === 'tracer' ? 0.07 : kind === 'bolt' ? 0.25 : 0.35;
+      const life = kind === 'tracer' ? 0.07 : kind === 'bolt' ? 0.25 : kind === 'laser' ? 0.2 : 0.35;
       this.effects.push({ type: kind, x: sx, y: sy, z: sz, x2: c.x + jx, y2: c.y + jy, z2: tz, life, max: life });
       if (kind !== 'tracer') this.effects.push({ type: 'flash', x: c.x, y: c.y, z: tz, life: 0.25, max: 0.25, size: 14, color: flashColor });
       this.hit(target, w, shooter, c.x, c.y);
@@ -710,6 +710,8 @@ export class Game {
         this.sound('place', s.x, s.y);
         continue;
       }
+      if (pw.kind === 'emp') { this.emp(s.x, s.y, pw.radius, pw.duration, s.owner); continue; }
+      if (pw.kind === 'kinetic') { this.kinetic(s, pw); continue; }
       this.blast(s.x, s.y, pw.radius, pw.damage, s.owner);
     }
     this.strikes = this.strikes.filter((s) => !s.done);
@@ -733,6 +735,51 @@ export class Game {
     for (const br of this.map.bridges) if (!br.dead && dist(br.x, br.y, x, y) <= radius + 1) this.damageBridge(br, damage);
   }
 
+  // EMP: enemy vehicles, aircraft, ships and defenses in the area shut down for a while
+  emp(x, y, radius, duration, owner) {
+    for (const list of [this.units, this.buildings]) {
+      for (const e of list) {
+        if (e.dead || !this.hostile(e.owner, owner) || e.isInfantry || distToEntity(x, y, e) > radius) continue;
+        e.empUntil = this.time + duration;
+        e.target = null;
+      }
+    }
+    this.effects.push({ type: 'empwave', x, y, z: 4, r: radius, life: 1, max: 1 });
+    this.sound('tesla', x, y);
+  }
+
+  // Kinetic Strike: a salvo of rods, each with a small blast, scattered over the area
+  kinetic(s, pw) {
+    const attacker = { owner: s.owner, rank: 0, dead: true };
+    for (let k = 0; k < pw.count; k++) {
+      const a = Math.random() * Math.PI * 2, r = k === 0 ? 0 : Math.sqrt(Math.random()) * pw.radius;
+      const x = s.x + Math.cos(a) * r, y = s.y + Math.sin(a) * r;
+      this.spawnExplosion(x, y, 1.4, true);
+      for (const list of [this.units, this.buildings]) {
+        for (const e of [...list]) {
+          if (e.dead) continue;
+          const d = distToEntity(x, y, e);
+          if (d <= 1.6) this.damage(e, pw.damage * (1 - d / 1.6 * 0.5), 'super', attacker);
+        }
+      }
+      for (const br of this.map.bridges) if (!br.dead && dist(br.x, br.y, x, y) <= 2) this.damageBridge(br, pw.damage);
+    }
+  }
+
+  // A cloaked unit nobody has spotted (it fired recently, or an enemy is right next to it)
+  hidden(u) {
+    return !!(u.def.cloak && !u.revealed);
+  }
+
+  updateCloaks() {
+    for (const u of this.units) {
+      if (!u.def.cloak) continue;
+      u.revealed = this.time - (u.lastFired ?? -99) < 2 ||
+        this.units.some((e) => this.hostile(e.owner, u.owner) && dist(e.x, e.y, u.x, u.y) < 1.6) ||
+        this.buildings.some((b) => this.hostile(b.owner, u.owner) && b.def.weapon && distToEntity(u.x, u.y, b) < 2);
+    }
+  }
+
   // Commando plants a charge; the building blows a few seconds later
   plantCharge(b, unit) {
     if (b.dead || b.charge) return;
@@ -747,6 +794,8 @@ export class Game {
 
     for (const p of this.players) { p.updateProduction(dt, this); p.updatePowers(dt, this); }
     this.updateStrikes(dt);
+    this.cloakTimer = (this.cloakTimer || 0) - dt;
+    if (this.cloakTimer <= 0) { this.cloakTimer = 0.3; this.updateCloaks(); }
     // A small trickle keeps the AI from stalling for good if its economy is wiped out
     for (const ai of this.ais) ai.p.credits += this.difficulty.trickle * dt;
     for (const ai of this.ais) ai.update(dt);

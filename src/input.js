@@ -143,6 +143,7 @@ export class Input {
     let best = null, bd = -Infinity;
     for (const u of g.units) {
       if (u.owner !== g.human && !g.isExplored(u.x, u.y)) continue;
+      if (g.hidden(u) && !g.allied(u.owner, g.human)) continue;
       const rc = r.entityRect(u);
       const depth = u.x + u.y + (u.isAir && u.z > 4 ? 1000 : 0); // flying aircraft are on top
       if (sx >= rc.x && sx <= rc.x + rc.w && sy >= rc.y && sy <= rc.y + rc.h && depth > bd) {

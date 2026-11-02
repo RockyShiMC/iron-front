@@ -12,7 +12,19 @@ Then open http://localhost:8080. You only need Node; there is nothing to install
 
 ## Factions
 
-Pick a side on the start screen; the AI plays the other one.
+Pick a side on the start screen; the AI plays a rival one.
+
+**Syndicate** (third side): corporate mercenaries with laser weapons, hover vehicles and electronic warfare.
+
+| | Syndicate |
+|---|---|
+| Power | Fusion Core (+200) |
+| Infantry | Operative (fast, cheap SMG), Lancer (laser rifle, anti-armor), Specter (hero: cloaked until it fires or an enemy gets close, plants charges) |
+| Vehicles | Skimmer (fast hover tank), Rail Platform (long-range railgun), Drone Miner (fast, armed) |
+| Air | Wasp Drone (laser gunship), Interceptor (anti-air missile jet) |
+| Navy | Hydrofoil, Laser Cruiser |
+| Defenses | Laser Turret, Rail Cannon |
+| Powers | EMP Burst from the Radar (shuts down enemy vehicles, aircraft and defenses for 12 s), Kinetic Strike superweapon (a salvo of orbital rods) |
 
 ## Modes
 
