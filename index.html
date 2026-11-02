@@ -23,6 +23,7 @@
       <button id="btn-repair">Repair</button>
       <button id="btn-sell">Sell</button>
     </div>
+    <div id="powers"></div>
     <div id="audio-ctl">
       <button id="btn-sfx" title="Toggle sound effects (M)">Sound: On</button>
       <button id="btn-voice" title="Toggle announcer voice (V)">EVA: On</button>
@@ -32,6 +33,7 @@
   </aside>
 
   <div id="messages"></div>
+  <div id="sw-timers"></div>
   <div id="paused">PAUSED — press P to resume</div>
 
   <div id="menu"><div class="panel menu"></div></div>
@@ -81,6 +83,8 @@
         <tr><td>Shift + click</td><td>Queue waypoints</td></tr>
         <tr><td>F / Ctrl or ⌘ + click</td><td>Force fire (any target or the ground)</td></tr>
         <tr><td>G</td><td>Guard: click a unit to escort, or a spot to hold</td></tr>
+        <tr><td>R</td><td>Send damaged vehicles / ships to a Service Depot / Shipyard</td></tr>
+        <tr><td>D</td><td>Evacuate a selected garrisoned building</td></tr>
         <tr><td>S</td><td>Stop</td></tr>
         <tr><td>Q</td><td>Select all combat units</td></tr>
         <tr><td>Ctrl+1–9 / 1–9</td><td>Set / recall group (double tap to jump)</td></tr>
@@ -90,6 +94,9 @@
         <tr><td>P</td><td>Pause</td></tr>
         <tr><td>M / V / U</td><td>Toggle sound effects / announcer / unit voices</td></tr>
       </table>
+      <p class="sub">Engineers capture enemy buildings and the map's Oil Derricks (steady income), fix your own
+        buildings and rebuild destroyed bridges. Infantry can occupy civilian buildings and fire from inside.
+        Drag to lay a line of walls. Superweapons and support powers appear above Repair / Sell once built.</p>
       <p class="sub">Build order: Power → Ore Refinery → Barracks → War Factory → Radar. Radar unlocks the Airfield;
         a Refinery unlocks the Shipyard (build it on water). Aircraft can only be hit by anti-air: rifles, rockets,
         AA Batteries and some ships. Jets return to an Airfield to rearm.</p>

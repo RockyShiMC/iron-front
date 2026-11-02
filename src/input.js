@@ -15,7 +15,9 @@ export class Input {
     this.hover = null;
     this.dragRect = null;
     this.placing = null; // { key, tx, ty }
-    this.mode = null; // 'sell' | 'repair' | 'attackmove' | 'forcefire' | 'guard'
+    this.mode = null; // 'sell' | 'repair' | 'attackmove' | 'forcefire' | 'guard' | 'power'
+    this.power = null; // support power being aimed
+    this.wallLine = null; // tiles of a wall being dragged out
     this.markers = [];
     this.groups = {};
     this.mouse = { x: 0, y: 0, inside: false };
@@ -50,6 +52,7 @@ export class Input {
         this.r.clampCam();
         this.pan = { x: p.x, y: p.y };
       }
+      if (this.down && this.placing && BUILDINGS[this.placing.key].wall) this.wallLine = this.wallTiles(this.down, p);
       if (this.down && Math.hypot(p.x - this.down.x, p.y - this.down.y) > 6 && !this.placing) {
         const x = Math.min(p.x, this.down.x), y = Math.min(p.y, this.down.y);
         this.dragRect = { x, y, w: Math.abs(p.x - this.down.x), h: Math.abs(p.y - this.down.y) };
@@ -59,9 +62,11 @@ export class Input {
       if (e.button === 1) this.pan = null;
       if (e.button !== 0 || !this.down) return;
       if (this.dragRect) this.boxSelect(this.dragRect, e.shiftKey);
+      else if (this.wallLine && this.wallLine.length > 1) this.placeWalls(this.wallLine);
       else this.click(this.down.x, this.down.y, e);
       this.down = null;
       this.dragRect = null;
+      this.wallLine = null;
     }, opts);
     c.addEventListener('mouseleave', () => { this.mouse.inside = false; }, opts);
     window.addEventListener('keydown', (e) => this.keyDown(e), opts);
@@ -103,6 +108,29 @@ export class Input {
     const w = this.r.toWorld(this.mouse.x, this.mouse.y);
     this.placing.tx = Math.floor(w.x) - Math.floor(def.w / 2);
     this.placing.ty = Math.floor(w.y) - Math.floor(def.h / 2);
+  }
+
+  // Tiles in a straight line (along whichever axis moved more) between two screen points
+  wallTiles(a, b) {
+    const wa = this.r.toWorld(a.x, a.y), wb = this.r.toWorld(b.x, b.y);
+    const ax = Math.floor(wa.x), ay = Math.floor(wa.y), bx = Math.floor(wb.x), by = Math.floor(wb.y);
+    const tiles = [];
+    if (Math.abs(bx - ax) >= Math.abs(by - ay)) for (let x = ax; x !== bx + Math.sign(bx - ax || 1); x += Math.sign(bx - ax || 1)) tiles.push({ x, y: ay });
+    else for (let y = ay; y !== by + Math.sign(by - ay); y += Math.sign(by - ay)) tiles.push({ x: ax, y });
+    return tiles.slice(0, 16);
+  }
+
+  // The first segment uses the finished wall; each extra one is paid for on the spot
+  placeWalls(tiles) {
+    const g = this.g, p = g.human, key = this.placing.key;
+    if (!g.placeBuilding(p, key, tiles[0].x, tiles[0].y)) { g.notify("Can't build there", 'warn', 1); g.sound('error'); return; }
+    this.placing = null;
+    for (const t of tiles.slice(1)) {
+      if (p.credits < BUILDINGS[key].cost) { g.notify('Insufficient funds', 'warn', 20); break; }
+      if (!g.canPlace(p, key, t.x, t.y)) continue;
+      p.credits -= BUILDINGS[key].cost;
+      g.addBuilding(p, key, t.x, t.y);
+    }
   }
 
   addMarker(x, y, color) {
@@ -183,6 +211,13 @@ export class Input {
       return;
     }
 
+    if (this.mode === 'power') {
+      this.mode = null;
+      if (g.usePower(human, this.power, w.x, w.y)) this.addMarker(w.x, w.y, '#ff4040');
+      this.power = null;
+      return;
+    }
+
     const units = this.ownUnits();
 
     // Force fire (F, or Ctrl / Cmd + click): shoot whatever is there, even the ground
@@ -220,6 +255,8 @@ export class Input {
       return;
     }
 
+    if (units.length && !e.shiftKey && this.special(units, ent, w)) return;
+
     if (ent && ent.owner === human) {
       const harvesters = units.filter((u) => u.def.harvester);
       if (ent.key === 'refinery' && harvesters.length && !e.shiftKey) {
@@ -246,7 +283,7 @@ export class Input {
       return;
     }
 
-    if (ent && ent.owner !== human && units.some((u) => g.canHit(u.weapon, ent))) {
+    if (ent && !ent.owner.neutral && ent.owner !== human && units.some((u) => g.canHit(u.weapon, ent))) {
       this.attack(units, ent);
       return;
     }
@@ -273,6 +310,62 @@ export class Input {
     }
 
     this.selection = ent ? [ent] : [];
+  }
+
+  // Context orders: engineers capture / repair, infantry garrison, commandos demolish,
+  // damaged vehicles go to a depot. Returns true if the click was used.
+  special(units, ent, w) {
+    const g = this.g, human = g.human;
+    const engineers = units.filter((u) => u.def.engineer);
+    const used = [];
+    const say = (list, color, line = 'move') => {
+      used.push(...list);
+      this.addMarker(ent ? ent.x : w.x, ent ? ent.y : w.y, color);
+      g.sound('move');
+      g.voice(this.spokesman(list), line);
+    };
+    if (!ent) {
+      // engineers rebuild a destroyed bridge
+      const br = g.map.bridgeOn(w.x, w.y);
+      if (br && br.dead && engineers.length) {
+        engineers[0].waypoints = [];
+        engineers[0].orderFixBridge(g, br);
+        say([engineers[0]], '#e8c547');
+        return true;
+      }
+      return false;
+    }
+    if (!ent.isBuilding) return false;
+    if (engineers.length) {
+      const enemyOrNeutral = ent.owner !== human && ent.def.capturable !== false && !ent.garrison?.length;
+      const fixOwn = ent.owner === human && ent.hp < ent.maxHp && !ent.def.wall;
+      if (enemyOrNeutral || fixOwn) {
+        for (const u of engineers) { u.waypoints = []; u.orderReach(g, 'capture', ent); }
+        say(engineers, '#e8c547');
+      }
+    }
+    const occupants = units.filter((u) => g.canGarrison(u, ent));
+    if (occupants.length) {
+      const room = ent.def.garrison - (ent.garrison?.length || 0);
+      const going = occupants.slice(0, room);
+      for (const u of going) { u.waypoints = []; u.orderReach(g, 'enter', ent); }
+      say(going, '#6ab0ff');
+    }
+    const commandos = units.filter((u) => u.def.demolish);
+    if (commandos.length && g.hostile(ent.owner, human) && !ent.def.wall) {
+      for (const u of commandos) { u.waypoints = []; u.orderReach(g, 'demolish', ent); }
+      say(commandos, '#ff4040', 'attack');
+    }
+    if (ent.owner === human && ent.def.repairs) {
+      const fix = units.filter((u) => u.hp < u.maxHp && g.repairBayFor(u) && (ent.def.repairs === 'naval') === !!u.isNaval);
+      for (const u of fix) { u.waypoints = []; u.orderRepair(g, ent); }
+      if (fix.length) say(fix, '#60ff60');
+    }
+    if (!used.length) return false;
+    // anyone not given a special job attacks an enemy building, or just moves there
+    const rest = units.filter((u) => !used.includes(u));
+    if (rest.length && g.hostile(ent.owner, human)) this.attack(rest, ent);
+    return true;
   }
 
   attack(units, target) {
@@ -314,6 +407,19 @@ export class Input {
       case 'a': if (this.ownUnits().length) this.mode = 'attackmove'; break;
       case 'f': if (this.ownUnits().some((u) => u.weapon)) this.mode = 'forcefire'; break;
       case 'g': if (this.ownUnits().length) this.mode = 'guard'; break;
+      case 'r': {
+        // send damaged vehicles / ships to be fixed
+        const fix = this.ownUnits().filter((u) => u.hp < u.maxHp);
+        let sent = 0;
+        for (const u of fix) { u.waypoints = []; if (u.orderRepair(g)) sent++; }
+        if (sent) { g.sound('move'); g.voice(this.spokesman(fix), 'move'); } else if (fix.length) g.notify('No repair facility', 'warn', 2);
+        break;
+      }
+      case 'd': {
+        // evacuate selected garrisoned buildings
+        for (const b of this.selection) if (b.isBuilding && b.owner === g.human && b.garrison?.length) g.evacuate(b);
+        break;
+      }
       case 'q': this.selection = g.units.filter((u) => u.owner === g.human && u.weapon && !u.def.harvester); break;
       case 'h': {
         const cy = g.buildings.find((b) => b.owner === g.human && b.key === 'conyard') || g.buildings.find((b) => b.owner === g.human);
@@ -328,8 +434,8 @@ export class Input {
   // ---------- per-frame ----------
   update(dt) {
     const g = this.g;
-    this.selection = this.selection.filter((e) => !e.dead);
-    for (const n in this.groups) this.groups[n] = this.groups[n].filter((u) => !u.dead);
+    this.selection = this.selection.filter((e) => !e.dead && !e.inside && !(e.isBuilding && e.owner !== g.human && !g.isExplored(e.x, e.y)));
+    for (const n in this.groups) this.groups[n] = this.groups[n].filter((u) => !u.dead && !u.inside);
     for (const m of this.markers) m.life -= dt;
     this.markers = this.markers.filter((m) => m.life > 0);
 
@@ -360,7 +466,7 @@ export class Input {
     if (this.placing) cursor = 'crosshair';
     else if (this.mode === 'sell') cursor = 'cell';
     else if (this.mode === 'repair') cursor = 'help';
-    else if (this.mode === 'attackmove' || this.mode === 'forcefire') cursor = 'crosshair';
+    else if (this.mode === 'attackmove' || this.mode === 'forcefire' || this.mode === 'power') cursor = 'crosshair';
     else if (this.mode === 'guard') cursor = 'alias';
     else if (this.hover && this.hover.owner !== g.human && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
     else if (this.hover && this.hover.owner === g.human) cursor = 'pointer';

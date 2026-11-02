@@ -1,4 +1,4 @@
-import { FACTIONS, defOf } from './config.js';
+import { FACTIONS, POWERS, defOf } from './config.js';
 import { categoryOf } from './player.js';
 
 export class UI {
@@ -24,6 +24,8 @@ export class UI {
       sfx: document.getElementById('btn-sfx'),
       voice: document.getElementById('btn-voice'),
       units: document.getElementById('btn-units'),
+      powers: document.getElementById('powers'),
+      timers: document.getElementById('sw-timers'),
     };
     this.signal = signal;
     this.buttons = [];
@@ -37,11 +39,27 @@ export class UI {
     this.el.voice.addEventListener('click', () => this.audio.setVoice(!this.audio.voiceOn), { signal: this.signal });
     this.el.units.addEventListener('click', () => this.audio.setUnitVoice(!this.audio.unitVoiceOn), { signal: this.signal });
     for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => this.g.sound('click'));
+    // mousedown, because the panel is redrawn whenever HP changes and that can swallow a click
+    this.el.info.addEventListener('mousedown', (e) => {
+      if (e.target.dataset.act !== 'evacuate') return;
+      for (const b of this.input.selection) if (b.isBuilding && b.garrison?.length) this.g.evacuate(b);
+    }, { signal: this.signal });
+    this.el.powers.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const id = btn.dataset.power, st = this.g.human.powers[id];
+      if (!st || st.charge < POWERS[id].charge) { this.g.sound('error'); return; }
+      this.input.placing = null;
+      this.input.mode = 'power';
+      this.input.power = id;
+      this.g.sound('click');
+      this.g.notify('Select target', 'info', 0.5);
+    }, { signal: this.signal });
   }
 
   // Clear everything this battle put in the sidebar (listeners go with the abort signal)
   destroy() {
-    for (const k of ['tabs', 'items', 'messages', 'info']) this.el[k].innerHTML = '';
+    for (const k of ['tabs', 'items', 'messages', 'info', 'powers', 'timers']) this.el[k].innerHTML = '';
   }
 
   buildTabs() {
@@ -107,6 +125,36 @@ export class UI {
     }
   }
 
+  // Support power buttons (ours) and superweapon countdowns (everyone's)
+  updatePowers() {
+    const g = this.g, p = g.human;
+    const mine = Object.entries(POWERS).filter(([, pw]) => pw.faction === p.faction && p.has(pw.building));
+    const sig = mine.map(([id]) => id).join();
+    if (this.powerSig !== sig) {
+      this.powerSig = sig;
+      this.el.powers.innerHTML = mine.map(([id, pw]) => `<button data-power="${id}"><span class="bar"></span><span>${pw.name}</span><span class="pct"></span></button>`).join('');
+    }
+    for (const btn of this.el.powers.children) {
+      const id = btn.dataset.power, pw = POWERS[id], st = p.powers[id] || { charge: 0 };
+      const f = st.charge / pw.charge;
+      btn.querySelector('.bar').style.width = `${f * 100}%`;
+      btn.querySelector('.pct').textContent = f >= 1 ? 'READY' : p.lowPower() ? 'LOW POWER' : `${Math.floor(f * 100)}%`;
+      btn.classList.toggle('ready', f >= 1);
+      btn.classList.toggle('aiming', this.input.mode === 'power' && this.input.power === id);
+    }
+    let html = '';
+    for (const pl of g.players) {
+      for (const [id, pw] of Object.entries(POWERS)) {
+        const st = pl.powers[id];
+        if (!pw.superweapon || !st || !pl.has(pw.building)) continue;
+        const left = Math.max(0, pw.charge - st.charge);
+        const t = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : 'READY';
+        html += `<div style="border-color:${pl.color}">${pw.name}${pl === p ? '' : ' (enemy)'} ${t}</div>`;
+      }
+    }
+    if (this.el.timers.innerHTML !== html) this.el.timers.innerHTML = html;
+  }
+
   update() {
     const g = this.g, p = g.human;
     this.el.credits.textContent = `$ ${Math.floor(p.credits)}`;
@@ -155,13 +203,25 @@ export class UI {
     this.el.sell.classList.toggle('active', this.input.mode === 'sell');
     this.el.repair.classList.toggle('active', this.input.mode === 'repair');
 
+    this.updatePowers();
+
     // Selection info
     const sel = this.input.selection;
     let info = '';
     if (sel.length === 1) {
       const e = sel[0];
-      info = `<b>${e.def.name}</b>${e.owner !== p ? ' <span class="enemy">(enemy)</span>' : ''}<br>HP ${Math.ceil(e.hp)} / ${e.maxHp}`;
+      const tag = e.owner.neutral ? ' <span class="muted">(civilian)</span>' : e.owner !== p ? ' <span class="enemy">(enemy)</span>' : '';
+      info = `<b>${e.def.name}</b>${tag}<br>HP ${Math.ceil(e.hp)} / ${e.maxHp}`;
+      if (e.rank) info += ` · ${e.rank === 2 ? 'Elite' : 'Veteran'}`;
       if (e.def.harvester) info += `<br>Ore ${Math.floor(e.cargo)} / ${e.def.capacity}`;
+      if (e.def.garrison) {
+        info += `<br>Garrison ${e.garrison?.length || 0} / ${e.def.garrison}`;
+        if (e.owner === p && e.garrison?.length) info += '<br><button data-act="evacuate">Evacuate (D)</button>';
+        else if (!e.garrison?.length) info += '<br><small>Click it with infantry to occupy</small>';
+      }
+      if (e.def.income) info += `<br><small>+$${e.def.income} every ${e.def.incomeEvery}s${e.owner.neutral ? ' — capture with an Engineer' : ''}</small>`;
+      if (e.def.engineer && e.owner === p) info += '<br><small>Click a building to capture or fix it, or a broken bridge</small>';
+      if (e.def.demolish && e.owner === p) info += '<br><small>Click an enemy building to plant a charge</small>';
       if (e.isBuilding && e.def.produces && e.def.produces !== 'building' && e.owner === p) info += '<br><small>Click ground to set rally point</small>';
     } else if (sel.length > 1) {
       const counts = {};
@@ -171,6 +231,7 @@ export class UI {
     if (this.input.mode === 'attackmove') info = '<b>Attack-move:</b> click a destination';
     if (this.input.mode === 'forcefire') info = '<b>Force fire:</b> click a target or the ground';
     if (this.input.mode === 'guard') info = '<b>Guard:</b> click a unit to escort, or a spot to hold';
+    if (this.input.mode === 'power') info = `<b>${POWERS[this.input.power].name}:</b> click a target<br><small>Right click to cancel</small>`;
     if (this.input.mode === 'sell') info = '<b>Sell mode:</b> click one of your structures';
     if (this.input.mode === 'repair') info = '<b>Repair mode:</b> click a damaged structure';
     if (this.input.placing) info = `<b>Place ${defOf(this.input.placing.key).name}</b><br><small>Right click to cancel</small>`;

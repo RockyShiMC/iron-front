@@ -111,6 +111,34 @@ export class Unit extends Entity {
     this.repathTimer = 0;
   }
 
+  // Walk up to a building and act on it: 'capture' (engineer), 'enter' (garrison),
+  // 'demolish' (plant a charge)
+  orderReach(g, type, target) {
+    this.order = { type, target };
+    this.target = null;
+    this.path = [];
+    this.repathTimer = 0;
+  }
+
+  // Engineer rebuilds a destroyed bridge from one of its ends
+  orderFixBridge(g, bridge) {
+    const end = g.bridgeEnd(bridge, this);
+    if (!end) return;
+    this.order = { type: 'fixBridge', bridge, x: end.x, y: end.y };
+    this.target = null;
+    this.setPath(g, end.x, end.y);
+  }
+
+  // Drive to a service depot (ships: shipyard), get fixed, then come back
+  orderRepair(g, bay = g.repairBayFor(this)) {
+    if (!bay) return false;
+    const dock = g.exitPoint(bay, this.domain);
+    this.order = { type: 'repair', bay, x: dock.x, y: dock.y, back: { x: this.x, y: this.y } };
+    this.target = null;
+    this.setPath(g, dock.x, dock.y);
+    return true;
+  }
+
   orderStop() {
     this.order = { type: 'idle' };
     this.path = [];
@@ -193,6 +221,15 @@ export class Unit extends Entity {
       case 'guard':
         this.updateGuard(dt, g, o);
         break;
+      case 'capture': case 'enter': case 'demolish':
+        this.updateReach(dt, g, o);
+        break;
+      case 'fixBridge':
+        this.updateFixBridge(dt, g, o);
+        break;
+      case 'repair':
+        this.updateRepair(dt, g, o);
+        break;
     }
     if (this.order.type === 'idle' && this.waypoints?.length) {
       const w = this.waypoints.shift();
@@ -218,6 +255,7 @@ export class Unit extends Entity {
     if (!this.followPath(dt, g)) return;
     this.landed = true;
     if (this.z > 1) return;
+    if (this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.03 * dt); // airfields patch aircraft up too
     this.reloadTimer += dt;
     if (this.reloadTimer >= 1.5) {
       this.reloadTimer = 0;
@@ -289,6 +327,69 @@ export class Unit extends Entity {
     } else {
       this.path = [];
     }
+  }
+
+  updateReach(dt, g, o) {
+    const b = o.target;
+    const valid = b && !b.dead && (
+      o.type === 'capture' ? (b.owner !== this.owner ? b.def.capturable !== false && !b.garrison?.length : b.hp < b.maxHp)
+        : o.type === 'enter' ? g.canGarrison(this, b)
+        : g.hostile(b.owner, this.owner) && !b.charge);
+    if (!valid) { this.order = { type: 'idle' }; this.path = []; return; }
+    if (distToEntity(this.x, this.y, b) <= 0.9) {
+      this.path = [];
+      this.order = { type: 'idle' };
+      if (o.type === 'capture') {
+        if (b.owner === this.owner) { b.hp = b.maxHp; g.sound('place', b.x, b.y); }
+        else g.capture(b, this.owner);
+        this.dead = true; // the engineer stays inside
+        this.consumed = true;
+      } else if (o.type === 'enter') {
+        g.enterGarrison(this, b);
+      } else {
+        g.plantCharge(b, this);
+      }
+      return;
+    }
+    this.repathTimer -= dt;
+    if (this.repathTimer <= 0 || !this.path.length) {
+      this.repathTimer = 1.5;
+      const p = g.map.nearestPassable(b.tx + Math.floor(b.w / 2), b.ty + b.h, this.x, this.y, this.domain);
+      this.setPath(g, p ? p.x + 0.5 : b.x, p ? p.y + 0.5 : b.y);
+    }
+    this.followPath(dt, g);
+  }
+
+  updateFixBridge(dt, g, o) {
+    if (!o.bridge.dead) { this.order = { type: 'idle' }; return; }
+    if (!this.followPath(dt, g)) return;
+    if (dist(this.x, this.y, o.x, o.y) < 1.2) {
+      g.repairBridge(o.bridge);
+      this.dead = true;
+      this.consumed = true;
+    } else {
+      this.order = { type: 'idle' };
+    }
+  }
+
+  updateRepair(dt, g, o) {
+    const bay = o.bay;
+    if (bay.dead || bay.owner !== this.owner) { this.order = { type: 'idle' }; return; }
+    if (distToEntity(this.x, this.y, bay) > 1.8) {
+      if (this.followPath(dt, g)) this.order = { type: 'idle' }; // couldn't get there
+      return;
+    }
+    this.path = [];
+    if (this.hp < this.maxHp) {
+      // 6% of max HP per second, paid for like building repairs
+      const heal = Math.min(this.maxHp * 0.06 * dt, this.maxHp - this.hp);
+      const cost = (heal / this.maxHp) * this.def.cost * 0.25;
+      if (this.owner.credits >= cost) { this.owner.credits -= cost; this.hp += heal; }
+      if (Math.random() < dt * 4) g.effects.push({ type: 'spark', x: this.x + (Math.random() - 0.5) * 0.5, y: this.y + (Math.random() - 0.5) * 0.5, z: 10, life: 0.2, max: 0.2 });
+      return;
+    }
+    if (o.back && dist(this.x, this.y, o.back.x, o.back.y) > 2) this.orderMove(g, o.back.x, o.back.y);
+    else this.order = { type: 'idle' };
   }
 
   updateAttack(dt, g, o) {
@@ -486,6 +587,22 @@ export class Building extends Entity {
     this.anim += dt;
     if (this.buildAnim < 1) this.buildAnim = Math.min(1, this.buildAnim + dt / 1.2);
     if (this.cooldown > 0) this.cooldown -= dt;
+
+    // Oil derricks pay whoever holds them
+    if (this.def.income && !this.owner.neutral) {
+      this.incomeTimer = (this.incomeTimer || 0) + dt;
+      if (this.incomeTimer >= this.def.incomeEvery) {
+        this.incomeTimer = 0;
+        this.owner.credits += this.def.income;
+        if (this.owner === g.human) g.effects.push({ type: 'cash', x: this.x, y: this.y, z: this.def.height + 10, vx: 0, vy: 0, vz: 18, life: 1.2, max: 1.2, amount: this.def.income });
+      }
+    }
+    // A commando's demolition charge
+    if (this.charge) {
+      this.charge.t -= dt;
+      if (this.charge.t <= 0) { const by = this.charge.by; this.charge = null; g.kill(this, by?.dead ? null : by); return; }
+    }
+    if (this.garrison?.length) g.updateGarrison(this, dt);
 
     if (this.repairing) {
       if (this.hp >= this.maxHp) {

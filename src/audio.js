@@ -20,11 +20,24 @@ const EVA_LINES = {
   'Structure lost': 'Structure lost.',
   'Low power': 'Low power.',
   'New construction options': 'New construction options.',
+  'Building captured': 'Building captured.',
+  'Our building has been captured': 'Our building has been captured.',
+  'Bridge destroyed': 'Bridge destroyed.',
+  'Bridge repaired': 'Bridge repaired.',
+  'Select target': 'Select target.',
+  'Orbital Strike ready': 'Orbital strike ready.',
+  'Missile Strike ready': 'Missile strike ready.',
+  'Recon Sweep ready': 'Recon sweep ready.',
+  'Paradrop ready': 'Paratroopers ready.',
+  'Orbital Strike launched': 'Orbital strike launched.',
+  'Missile Strike launched': 'Missile launched.',
+  'Warning: enemy superweapon ready': 'Warning. Enemy superweapon ready.',
+  'Warning: enemy superweapon launched': 'Warning. Enemy superweapon launched.',
   'Mission accomplished': 'Mission accomplished.',
   'Mission failed': 'Mission failed.',
 };
 // These interrupt whatever EVA is saying, and unit chatter never cuts them off
-const URGENT = new Set(['Our base is under attack!', 'Mission accomplished', 'Mission failed', 'Low power']);
+const URGENT = new Set(['Our base is under attack!', 'Mission accomplished', 'Mission failed', 'Low power', 'Warning: enemy superweapon launched', 'Warning: enemy superweapon ready']);
 // EVA won't say the same line again within this many seconds (default 6)
 const EVA_COOLDOWN = { 'Insufficient funds': 20, 'Unit lost': 10, 'Structure lost': 10, 'Low power': 15, 'Ore miner under attack': 25, 'Our base is under attack!': 25 };
 

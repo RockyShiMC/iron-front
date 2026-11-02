@@ -37,7 +37,9 @@ function encoder(live) {
 const fields = (o, enc, skip = []) => Object.fromEntries(Object.entries(o).filter(([k]) => !skip.includes(k)).map(([k, v]) => [k, enc(v)]));
 
 export function snapshot(game, renderer) {
-  const live = new Set([...game.units, ...game.buildings]);
+  // soldiers inside civilian buildings are off the map but still part of the battle
+  const garrisoned = game.buildings.flatMap((b) => b.garrison || []);
+  const live = new Set([...game.units, ...garrisoned, ...game.buildings]);
   const enc = encoder(live);
   return {
     version: VERSION,
@@ -54,11 +56,13 @@ export function snapshot(game, renderer) {
       lastNotice: game.lastNotice,
       result: game.result,
       players: game.players.map((p) => fields(p, enc)),
-      units: game.units.map((u) => fields(u, enc, ['def'])),
+      units: [...game.units, ...garrisoned].map((u) => fields(u, enc, ['def'])),
       buildings: game.buildings.map((b) => fields(b, enc, ['def'])),
       oreReserved: enc(game.oreReserved),
       projectiles: enc(game.projectiles),
       effects: enc(game.effects),
+      strikes: enc(game.strikes),
+      bridges: game.map.bridges.map((b) => ({ hp: b.hp, dead: b.dead })),
       ais: game.ais.map((ai) => fields(ai, enc, ['g', 'p', 'd'])),
     },
   };
@@ -107,7 +111,7 @@ export function restore(data) {
   s.players.forEach((raw, i) => Object.assign(players[i], dec(raw)));
   g.ais.forEach((ai, i) => Object.assign(ai, dec(s.ais[i])));
 
-  g.units = units;
+  g.units = units.filter((u) => !u.inside);
   g.buildings = buildings;
   g.time = s.time;
   g.explored = dec(s.explored);
@@ -118,7 +122,15 @@ export function restore(data) {
   g.result = s.result;
   g.oreReserved = dec(s.oreReserved);
   g.projectiles = dec(s.projectiles);
-  g.effects = dec(s.effects);
+  (s.bridges || []).forEach((st, i) => {
+    const br = g.map.bridges[i];
+    if (!br) return;
+    br.hp = st.hp;
+    if (st.dead) g.destroyBridge(br);
+  });
+  g.effects = dec(s.effects); // after the bridges, so their collapse doesn't replay
+  g.strikes = dec(s.strikes || []);
+  g.messages = [];
   g.visStamp++;
 
   // Building footprints live on the map grid

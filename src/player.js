@@ -1,4 +1,4 @@
-import { UNITS, BUILDINGS, FACTIONS, START_CREDITS, defOf } from './config.js';
+import { UNITS, BUILDINGS, FACTIONS, START_CREDITS, POWERS, defOf } from './config.js';
 
 export const CATEGORIES = ['building', 'infantry', 'vehicle', 'air', 'naval'];
 const MAX_QUEUE = 5;
@@ -23,6 +23,35 @@ export class Player {
     this.powerUse = 0;
     this.counts = {};
     this.defeated = false;
+    this.powers = {}; // support power id -> { charge, announced }
+  }
+
+  // The civilians: own the map's oil derricks and town until someone takes them
+  static neutral(id) {
+    const p = new Player(id, 'allied', false);
+    p.neutral = true;
+    p.name = 'Civilians';
+    p.color = '#a89f8c';
+    p.credits = 0;
+    return p;
+  }
+
+  // Support powers charge while their building stands (and, for most, while powered)
+  updatePowers(dt, g) {
+    if (this.neutral) return;
+    for (const [id, pw] of Object.entries(POWERS)) {
+      if (pw.faction !== this.faction) continue;
+      const has = this.has(pw.building);
+      const st = (this.powers[id] ||= { charge: 0, announced: false });
+      if (!has) { st.charge = 0; st.announced = false; continue; }
+      if (this.lowPower() || st.charge >= pw.charge) continue;
+      st.charge = Math.min(pw.charge, st.charge + dt);
+      if (st.charge >= pw.charge && !st.announced) {
+        st.announced = true;
+        if (this === g.human) g.notify(`${pw.name} ready`, 'info', 0);
+        else if (pw.superweapon) g.notify('Warning: enemy superweapon ready', 'alert', 0);
+      }
+    }
   }
 
   lowPower() { return this.powerUse > this.powerOut; }
@@ -49,6 +78,9 @@ export class Player {
     const def = defOf(key);
     if (def.buildable === false) return false;
     if (def.faction && def.faction !== this.faction) return false;
+    // heroes: one at a time
+    if (def.unique && (this.queuedCount(key) || g.units.some((u) => u.owner === this && u.key === key) ||
+      g.buildings.some((b) => b.owner === this && b.garrison?.some((u) => u.key === key)))) return false;
     return this.prereqsMet(key) && !!this.producerFor(categoryOf(key), g);
   }
 
@@ -125,7 +157,7 @@ export class Player {
       if (p > 0) this.powerOut += p;
       else this.powerUse -= p;
     }
-    if (this.isAI) return;
+    if (this.isAI || this.neutral) return;
     if (!wasLow && this.lowPower()) g.notify('Low power', 'alert', 0);
     // Announce when a new building unlocks things we couldn't build before
     const unlocked = new Set(FACTIONS[this.faction].tabs.flatMap((t) => t.items).filter((k) => this.prereqsMet(k)));

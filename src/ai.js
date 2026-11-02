@@ -1,10 +1,11 @@
-import { BUILDINGS, FACTIONS, keyForRole } from './config.js';
+import { BUILDINGS, FACTIONS, POWERS, UNITS, keyForRole } from './config.js';
 import { dist } from './util.js';
 
 // Build order by role; each faction maps roles to its own buildings
 const BUILD_ORDER = [
   'power', 'refinery', 'barracks', 'power', 'factory', 'defense', 'radar', 'refinery', 'power',
-  'airfield', 'aaDefense', 'shipyard', 'advDefense', 'power', 'defense', 'advDefense', 'aaDefense',
+  'repairDepot', 'airfield', 'aaDefense', 'shipyard', 'advDefense', 'power', 'power', 'superweapon',
+  'defense', 'advDefense', 'aaDefense',
 ];
 
 // A skirmish AI that builds up quickly, keeps every factory busy, defends its
@@ -49,6 +50,63 @@ export class AI {
     this.raid();
     this.useJets();
     this.useNavy();
+    this.useEngineers();
+    this.repairUnits();
+    this.usePowers();
+  }
+
+  // ---------- engineers, repairs, powers ----------
+  // Keep one engineer around to grab oil derricks (neutral first, then the enemy's)
+  useEngineers() {
+    const g = this.g, p = this.p;
+    const derricks = g.buildings.filter((b) => b.def.income && b.owner !== p);
+    if (!derricks.length || !p.has('barracks')) return;
+    const engineers = g.units.filter((u) => u.owner === p && u.def.engineer);
+    if (!engineers.length && !p.queuedCount('engineer') && p.credits > 800) p.enqueue('engineer', g);
+    for (const e of engineers) {
+      if (e.order.type !== 'idle' && e.order.type !== 'move') continue;
+      const pick = derricks.filter((b) => b.owner.neutral).length ? derricks.filter((b) => b.owner.neutral) : derricks;
+      pick.sort((a, b) => dist(e.x, e.y, a.x, a.y) - dist(e.x, e.y, b.x, b.y));
+      e.orderReach(g, 'capture', pick[0]);
+    }
+  }
+
+  // Badly damaged vehicles and ships that aren't in the middle of an attack go for repairs
+  repairUnits() {
+    const g = this.g;
+    for (const u of g.units) {
+      if (u.owner !== this.p || u.isInfantry || u.isAir || u.def.harvester || u.hp > u.maxHp * 0.35) continue;
+      if (u.order.type === 'repair' || u.order.type === 'attack') continue;
+      if (u.orderRepair(g)) this.attacking.delete(u);
+    }
+  }
+
+  usePowers() {
+    const g = this.g, p = this.p;
+    for (const [id, pw] of Object.entries(POWERS)) {
+      const st = p.powers[id];
+      if (!st || st.charge < pw.charge) continue;
+      let t = null;
+      if (pw.kind === 'strike' || pw.kind === 'missile') t = this.richestSpot(pw.radius);
+      else if (pw.kind === 'paradrop') t = this.nearestEnemy(this.conyard() || p.rally, (e) => e.isUnit && e.def.harvester) || this.pickTarget(this.conyard() || p.rally);
+      else if (pw.kind === 'reveal') t = this.nearestEnemy({ x: g.map.w / 2, y: g.map.w / 2 }, (e) => e.isBuilding);
+      if (t) g.usePower(p, id, t.x, t.y);
+    }
+  }
+
+  // Enemy structure whose surroundings are worth the most, for a superweapon
+  richestSpot(radius) {
+    let best = null, bv = 0;
+    const g = this.g;
+    for (const b of g.buildings) {
+      if (!g.hostile(b.owner, this.p) || b.def.wall) continue;
+      let v = 0;
+      for (const list of [g.buildings, g.units]) {
+        for (const e of list) if (g.hostile(e.owner, this.p) && dist(e.x, e.y, b.x, b.y) <= radius) v += e.def.cost;
+      }
+      if (v > bv) { bv = v; best = b; }
+    }
+    return best;
   }
 
   // ---------- base building ----------
@@ -122,6 +180,8 @@ export class AI {
     if (p.has('shipyard') && q.naval.length < 1 && sea < 1 + ground * share * 0.4 && spare > 200) p.enqueue(pick(this.tab('naval')), g);
     const vehicles = this.tab('vehicle').filter((k) => k !== harvKey);
     if (p.has('factory') && q.vehicle.filter((i) => i.key !== harvKey).length < 2 && spare > 500) p.enqueue(pick(vehicles), g);
+    const hero = this.tab('infantry').find((k) => UNITS[k].hero);
+    if (hero && p.credits > 3000 && p.canBuild(hero, g)) p.enqueue(hero, g);
     const infantryCap = p.has('factory') ? veh * 1.5 + 5 : 12;
     if (p.has('barracks') && q.infantry.length < 2 && inf < infantryCap && spare > 150) p.enqueue(pick(this.tab('infantry')), g);
   }
@@ -209,7 +269,7 @@ export class AI {
     let best = null, bd = Infinity;
     for (const list of [this.g.buildings, this.g.units]) {
       for (const e of list) {
-        if (e.dead || e.owner === this.p || !filter(e)) continue;
+        if (e.dead || !this.g.hostile(e.owner, this.p) || !filter(e)) continue;
         const d = dist(from.x, from.y, e.x, e.y);
         if (d < bd) { bd = d; best = e; }
       }
@@ -218,7 +278,7 @@ export class AI {
   }
 
   pickTarget(from) {
-    const b = this.nearestEnemy(from, (e) => e.isBuilding);
+    const b = this.nearestEnemy(from, (e) => e.isBuilding && !e.def.wall) || this.nearestEnemy(from, (e) => e.isBuilding);
     if (b) return { x: b.x, y: b.y + b.h / 2 + 0.5 };
     const u = this.nearestEnemy(from, (e) => !e.isAir);
     return u && { x: u.x, y: u.y };

@@ -17,6 +17,9 @@ export const WARHEADS = {
   prism: { infantry: 0.9, vehicle: 0.8, building: 1.3, aircraft: 0.5, ship: 0.9 },
   flak: { infantry: 0.4, vehicle: 0.1, building: 0.1, aircraft: 1.6, ship: 0.2 },
   bomb: { infantry: 0.6, vehicle: 1.0, building: 1.4, aircraft: 0, ship: 1.2 },
+  sniper: { infantry: 1.0, vehicle: 0.05, building: 0.03, aircraft: 0, ship: 0.05 },
+  // superweapons hurt everything, aircraft included
+  super: { infantry: 1.0, vehicle: 1.0, building: 1.0, aircraft: 0.8, ship: 1.0 },
 };
 
 // projectile: tracer | bolt | beam | flak are instant hits; shell | rocket | bomb travel.
@@ -42,6 +45,9 @@ export const WEAPONS = {
   stormCannon: { damage: 42, range: 4.5, cooldown: 1.4, warhead: 'shell', projectile: 'shell', speed: 14 },
   strikeMissile: { damage: 95, range: 3.5, cooldown: 0.35, warhead: 'rocket', projectile: 'rocket', speed: 14 },
   heavyBomb: { damage: 120, range: 1.6, cooldown: 0.3, warhead: 'bomb', projectile: 'bomb', speed: 6, splash: 1.3 },
+  // heroes
+  sniperRifle: { damage: 150, range: 7.5, cooldown: 1.3, warhead: 'sniper', projectile: 'tracer' },
+  heavyMG: { damage: 16, range: 5, cooldown: 0.22, warhead: 'bullet', projectile: 'tracer', air: true, splash: 0.5 },
   // ships
   patrolGun: { damage: 14, range: 5.5, cooldown: 0.4, warhead: 'bullet', projectile: 'tracer', air: true },
   frigateMissile: { damage: 55, range: 8, cooldown: 2.5, warhead: 'rocket', projectile: 'rocket', speed: 11, air: true },
@@ -76,6 +82,16 @@ export const UNITS = {
     sight: 5, armor: 'vehicle', harvester: true, chrono: true, capacity: 450, radius: 0.4, size: 0.5,
     look: 'harvester', prereq: ['factory', 'refinery'],
   },
+  commando: {
+    name: 'Commando', faction: 'allied', category: 'infantry', cost: 1500, time: 15, hp: 260, speed: 1.6,
+    sight: 9, armor: 'infantry', weapon: 'sniperRifle', radius: 0.16, prereq: ['barracks', 'radar'], gear: 'sniper',
+    hero: true, unique: true, demolish: true, selfHeal: 2,
+  },
+  // ---- Both sides ----
+  engineer: {
+    name: 'Engineer', category: 'infantry', cost: 500, time: 6, hp: 75, speed: 1.2,
+    sight: 5, armor: 'infantry', radius: 0.15, prereq: ['barracks'], gear: 'engineer', engineer: true,
+  },
   // ---- Soviet ----
   conscript: {
     name: 'Conscript', faction: 'soviet', category: 'infantry', cost: 100, time: 3.5, hp: 100, speed: 1.25,
@@ -84,6 +100,11 @@ export const UNITS = {
   teslaTrooper: {
     name: 'Tesla Trooper', faction: 'soviet', category: 'infantry', cost: 500, time: 8, hp: 150, speed: 1.0,
     sight: 6, armor: 'infantry', weapon: 'teslaBolt', radius: 0.17, prereq: ['barracks', 'radar'], gear: 'tesla',
+  },
+  ironMajor: {
+    name: 'Iron Major', faction: 'soviet', category: 'infantry', cost: 1500, time: 15, hp: 650, speed: 1.1,
+    sight: 8, armor: 'infantry', weapon: 'heavyMG', radius: 0.2, prereq: ['barracks', 'radar'], gear: 'heavy',
+    hero: true, unique: true, selfHeal: 3,
   },
   rhino: {
     name: 'Rhino Tank', faction: 'soviet', category: 'vehicle', cost: 900, time: 12, hp: 420, speed: 1.8,
@@ -191,6 +212,24 @@ export const VOICES = {
     select: ['Tesla trooper online.', 'Coils charged.', 'Power at maximum.'],
     move: ['Advancing.', 'Charging forward.', 'Moving out.'],
     attack: ['Electrify them!', 'Full voltage!', 'Shock and destroy!'],
+  },
+  engineer: {
+    pitch: 1.1, rate: 1.1, male: true,
+    select: ['Engineer here.', 'Tools ready.', 'Need something fixed?'],
+    move: ['On my way.', 'Heading over.', 'Right away.'],
+    attack: ['I build things, I don\'t break them.', 'Not my job!'],
+  },
+  commando: {
+    pitch: 0.95, rate: 1.15, male: true,
+    select: ['Commando ready.', 'Let\'s get to work.', 'Who needs a ghost?'],
+    move: ['Moving quiet.', 'On it.', 'Slipping through.'],
+    attack: ['One shot, one kill.', 'Target marked.', 'Charges set!'],
+  },
+  ironMajor: {
+    pitch: 0.45, rate: 0.9, male: true,
+    select: ['The Iron Major is here.', 'Who dares?', 'Point me at them.'],
+    move: ['Marching.', 'Nothing stops me.', 'Clear the way!'],
+    attack: ['Mow them down!', 'Feel the iron!', 'Fire everything!'],
   },
   rhino: {
     pitch: 0.6, rate: 1.0, male: true,
@@ -357,7 +396,33 @@ export const BUILDINGS = {
   },
   shipyard: {
     name: 'Shipyard', w: 3, h: 3, hp: 1200, cost: 1500, time: 14, power: -30, sight: 6,
-    height: 22, prereq: ['refinery'], produces: 'naval', naval: true, // must be built on water
+    height: 22, prereq: ['refinery'], produces: 'naval', naval: true, repairs: 'naval', // must be built on water
+  },
+  wall: {
+    name: 'Wall', w: 1, h: 1, hp: 500, cost: 50, time: 1, power: 0, sight: 2, height: 14,
+    prereq: ['power'], wall: true, capturable: false,
+  },
+  repairDepot: {
+    name: 'Service Depot', w: 2, h: 2, hp: 1000, cost: 800, time: 10, power: -20, sight: 5,
+    height: 10, prereq: ['factory'], repairs: 'vehicle',
+  },
+  // ---- Superweapons (fire a support power, see POWERS) ----
+  strikeUplink: {
+    name: 'Orbital Uplink', faction: 'allied', role: 'superweapon', w: 3, h: 3, hp: 1600, cost: 2500, time: 30,
+    power: -100, sight: 6, height: 26, prereq: ['radar', 'factory'],
+  },
+  missileSilo: {
+    name: 'Missile Silo', faction: 'soviet', role: 'superweapon', w: 3, h: 3, hp: 1600, cost: 2500, time: 30,
+    power: -100, sight: 6, height: 14, prereq: ['radar', 'factory'],
+  },
+  // ---- Neutral, placed on the map ----
+  oilDerrick: {
+    name: 'Oil Derrick', w: 2, h: 2, hp: 800, cost: 1000, power: 0, sight: 4, height: 22,
+    buildable: false, income: 25, incomeEvery: 5, // credits for whoever owns it
+  },
+  civBuilding: {
+    name: 'Civilian Building', w: 2, h: 2, hp: 1500, cost: 1000, power: 0, sight: 6, height: 34,
+    buildable: false, garrison: 5, capturable: false, // infantry can occupy it and shoot from inside
   },
   aaBattery: {
     name: 'AA Battery', role: 'aaDefense', w: 1, h: 1, hp: 500, cost: 700, time: 9, power: -20, sight: 8,
@@ -373,8 +438,8 @@ export const FACTIONS = {
     harvester: 'chronoMiner',
     start: { tank: 'grizzly', infantry: 'gi' },
     tabs: [
-      { id: 'building', label: 'Base', items: ['power', 'refinery', 'barracks', 'factory', 'radar', 'airfield', 'shipyard', 'pillbox', 'prismTower', 'aaBattery'] },
-      { id: 'infantry', label: 'Infantry', items: ['gi', 'guardianGi'] },
+      { id: 'building', label: 'Base', items: ['power', 'refinery', 'barracks', 'factory', 'radar', 'repairDepot', 'airfield', 'shipyard', 'pillbox', 'prismTower', 'aaBattery', 'wall', 'strikeUplink'] },
+      { id: 'infantry', label: 'Infantry', items: ['gi', 'guardianGi', 'engineer', 'commando'] },
       { id: 'vehicle', label: 'Vehicles', items: ['grizzly', 'prismTank', 'chronoMiner'] },
       { id: 'air', label: 'Air', items: ['hawkGunship', 'strikeJet'] },
       { id: 'naval', label: 'Navy', items: ['patrolBoat', 'missileFrigate'] },
@@ -387,13 +452,29 @@ export const FACTIONS = {
     harvester: 'warMiner',
     start: { tank: 'rhino', infantry: 'conscript' },
     tabs: [
-      { id: 'building', label: 'Base', items: ['teslaReactor', 'refinery', 'barracks', 'factory', 'radar', 'airfield', 'shipyard', 'sentryGun', 'teslaCoil', 'aaBattery'] },
-      { id: 'infantry', label: 'Infantry', items: ['conscript', 'teslaTrooper'] },
+      { id: 'building', label: 'Base', items: ['teslaReactor', 'refinery', 'barracks', 'factory', 'radar', 'repairDepot', 'airfield', 'shipyard', 'sentryGun', 'teslaCoil', 'aaBattery', 'wall', 'missileSilo'] },
+      { id: 'infantry', label: 'Infantry', items: ['conscript', 'teslaTrooper', 'engineer', 'ironMajor'] },
       { id: 'vehicle', label: 'Vehicles', items: ['rhino', 'apocalypse', 'warMiner'] },
       { id: 'air', label: 'Air', items: ['stormGunship', 'heavyBomber'] },
       { id: 'naval', label: 'Navy', items: ['gunboat', 'battleship'] },
     ],
   },
+};
+
+// Support powers. Each charges while its owner has the building (and enough power),
+// then is fired at a spot on the map. kind: strike | missile (damage in a radius after
+// a delay), reveal (uncover the map), paradrop (infantry land at the spot).
+export const POWERS = {
+  orbitalStrike: {
+    name: 'Orbital Strike', faction: 'allied', building: 'strikeUplink', charge: 360, kind: 'strike',
+    damage: 1400, radius: 3.2, delay: 3, superweapon: true,
+  },
+  missileStrike: {
+    name: 'Missile Strike', faction: 'soviet', building: 'missileSilo', charge: 360, kind: 'missile',
+    damage: 1700, radius: 3.6, delay: 5, superweapon: true,
+  },
+  reconSweep: { name: 'Recon Sweep', faction: 'allied', building: 'radar', charge: 120, kind: 'reveal', radius: 10 },
+  paradrop: { name: 'Paradrop', faction: 'soviet', building: 'radar', charge: 180, kind: 'paradrop', unit: 'conscript', count: 5, delay: 2 },
 };
 
 // Look up the faction's building that fills a role (e.g. 'power' -> 'teslaReactor').

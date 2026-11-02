@@ -1,6 +1,6 @@
-import { TILE_W, TILE_H, HALF_W, HALF_H, BUILDINGS } from './config.js';
+import { TILE_W, TILE_H, HALF_W, HALF_H, BUILDINGS, POWERS } from './config.js';
 import { settings } from './settings.js';
-import { GRASS, WATER, ROCK } from './map.js';
+import { GRASS, WATER, ROCK, BRIDGE } from './map.js';
 import { shade, hashTile, clamp, mulberry32, fbm, vnoise, smoothstep, dist } from './util.js';
 
 const CHUNK = 8; // terrain is painted in CHUNK x CHUNK tile pieces
@@ -88,7 +88,8 @@ export class Renderer {
       const a = v(ix, iy), b = v(ix + 1, iy), cc = v(ix, iy + 1), d = v(ix + 1, iy + 1);
       return a + (b - a) * fx + (cc - a) * fy + (a - b - cc + d) * fx * fy;
     };
-    const waterAt = blend((i) => m.terrain[i] === WATER), rockAt = blend((i) => m.terrain[i] === ROCK);
+    // bridges are painted over water, so the ground underneath stays water whether they stand or not
+    const waterAt = blend((i) => m.terrain[i] === WATER || m.terrain[i] === BRIDGE), rockAt = blend((i) => m.terrain[i] === ROCK);
     const desertAt = blend((i) => m.biome[i] === 1), snowAt = blend((i) => m.biome[i] === 2);
     for (let j = 0; j < FW; j++) {
       for (let i = 0; i < FW; i++) {
@@ -192,7 +193,7 @@ export class Renderer {
         if (lx >= CH || ly >= CH || !m.inBounds(x, y)) continue;
         const i = m.idx(x, y), t = m.terrain[i];
         const tcx = (lx - ly) * HALF_W + ox, tcy = (lx + ly) * HALF_H + HALF_H + CHUNK_TOP;
-        if (t === WATER) continue;
+        if (t === WATER || t === BRIDGE) continue;
         if (t === ROCK) { this.drawBoulders(ctx, tcx, tcy, x, y, m.biome[i] === 2); continue; }
         if (m.oreMax[i] || near(x, y, 5)) continue;
         const h = hashTile(x * 3 + 1, y * 5 + 2), biome = m.biome[i];
@@ -360,6 +361,7 @@ export class Renderer {
 
     this.drawWater();
     this.drawOre();
+    this.drawBridges();
     this.drawGroundLayer(input);
 
     // Depth-sorted entities
@@ -384,12 +386,13 @@ export class Renderer {
     for (const u of air) if (this.onScreen(this.toScreen(u.x, u.y, u.z))) this.drawAircraft(u);
 
     this.drawProjectiles();
+    this.drawStrikes();
     this.drawEffects();
     this.drawShroud();
 
     // Overlays: veterancy chevrons, selection + health bars
     for (const u of g.units) {
-      if (!u.rank || (u.owner !== g.human && !g.isExplored(u.x, u.y))) continue;
+      if ((!u.rank && !u.def.hero) || (u.owner !== g.human && !g.isExplored(u.x, u.y))) continue;
       if (this.onScreen(this.toScreen(u.x, u.y))) this.drawRank(u);
     }
     if (settings.healthBars !== 'selected') {
@@ -420,6 +423,45 @@ export class Renderer {
     ctx.beginPath();
     ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
     ctx.closePath();
+  }
+
+  // Wooden decks over the water, with railings; destroyed ones leave only stumps
+  drawBridges() {
+    const g = this.g, m = g.map, S = m.w, ctx = this.ctx;
+    for (const br of m.bridges) {
+      if (!br.tiles.some((i) => g.explored[i])) continue;
+      const xs = br.tiles.map((i) => i % S), ys = br.tiles.map((i) => (i / S) | 0);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1;
+      if (!this.onScreen(this.toScreen((x0 + x1) / 2, (y0 + y1) / 2), 200)) continue;
+      if (br.dead) {
+        for (const [px, py] of [[x0 + 0.2, y0 + 0.2], [x1 - 0.2, y1 - 0.2], [x0 + 0.2, y1 - 0.2], [x1 - 0.2, y0 + 0.2]]) {
+          this.box(px - 0.1, py - 0.1, px + 0.1, py + 0.1, -4, 3, '#3b3227', '#2a231c', '#332b22');
+        }
+        continue;
+      }
+      const worn = br.hp / br.maxHp < 0.5;
+      const deck = worn ? '#6a5a45' : '#8a7458';
+      this.box(x0, y0, x1, y1, -8, 5, deck, '#4a3d2e', '#5a4a38');
+      // planks run across the direction of travel
+      ctx.strokeStyle = 'rgba(40,30,20,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (br.dx) for (let x = x0 + 0.25; x < x1; x += 0.25) { const a = this.toScreen(x, y0, 5), b = this.toScreen(x, y1, 5); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+      else for (let y = y0 + 0.25; y < y1; y += 0.25) { const a = this.toScreen(x0, y, 5), b = this.toScreen(x1, y, 5); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+      ctx.stroke();
+      // railings along both sides
+      ctx.strokeStyle = '#3b3024';
+      ctx.lineWidth = 2;
+      const rails = br.dx ? [[[x0, y0], [x1, y0]], [[x0, y1], [x1, y1]]] : [[[x0, y0], [x0, y1]], [[x1, y0], [x1, y1]]];
+      for (const [[ax, ay], [bx, by]] of rails) {
+        const a = this.toScreen(ax, ay, 12), b = this.toScreen(bx, by, 12);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        for (let t = 0; t <= 1.001; t += 0.5 / Math.max(1, Math.hypot(bx - ax, by - ay))) {
+          const p = this.toScreen(ax + (bx - ax) * t, ay + (by - ay) * t, 5), q = this.toScreen(ax + (bx - ax) * t, ay + (by - ay) * t, 12);
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        }
+      }
+    }
   }
 
   drawOre() {
@@ -519,8 +561,16 @@ export class Renderer {
       ctx.ellipse(p.x + 2 + off, p.y + 1 + off * 0.3, r * k, r * 0.5 * k, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Dragged-out wall line
+    if (input.placing && input.wallLine) {
+      for (const t of input.wallLine) {
+        this.tilePath(t.x, t.y, 0.04);
+        ctx.fillStyle = g.canPlace(g.human, input.placing.key, t.x, t.y) ? 'rgba(80,255,80,0.35)' : 'rgba(255,60,60,0.45)';
+        ctx.fill();
+      }
+    }
     // Building placement preview
-    if (input.placing) {
+    if (input.placing && !input.wallLine) {
       const pl = input.placing;
       const def = BUILDINGS[pl.key];
       const ok = g.canPlace(g.human, pl.key, pl.tx, pl.ty);
@@ -889,10 +939,144 @@ export class Renderer {
         if (powered && Math.random() < 0.08) this.g.effects.push({ type: 'arc', x: b.x, y: b.y, z: H, r: 0.6, life: 0.12, max: 0.12 });
         break;
       }
+      case 'wall': {
+        // concrete segment, joined to walls to the east and south
+        const m = this.g.map;
+        const isWall = (x, y) => m.inBounds(x, y) && m.buildingAt[m.idx(x, y)]?.def.wall;
+        const top = '#a9a79e', l = '#6f6d66', r = '#8a8880', a = 0.28;
+        this.box(b.tx + a, b.ty + a, b.tx + 1 - a, b.ty + 1 - a, 0, H, top, l, r);
+        if (isWall(b.tx + 1, b.ty)) this.box(b.tx + 1 - a, b.ty + a + 0.06, b.tx + 1 + a, b.ty + 1 - a - 0.06, 0, H - 2, top, l, r);
+        if (isWall(b.tx, b.ty + 1)) this.box(b.tx + a + 0.06, b.ty + 1 - a, b.tx + 1 - a - 0.06, b.ty + 1 + a, 0, H - 2, top, l, r);
+        const c = s(b.x, b.y, H);
+        ctx.fillStyle = team;
+        ctx.fillRect(c.x - 2, c.y - 1.5, 4, 3);
+        break;
+      }
+      case 'repairDepot': {
+        this.box(x0, y0, x1, y1, 0, 4 * k, '#55544e', '#3c3b36', '#47463f');
+        // hazard-striped lift in the middle
+        const lift = [s(b.x - 0.6, b.y - 0.6, 4), s(b.x + 0.6, b.y - 0.6, 4), s(b.x + 0.6, b.y + 0.6, 4), s(b.x - 0.6, b.y + 0.6, 4)];
+        this.poly(lift, '#2f2f2c', 'rgba(232,197,71,0.9)');
+        ctx.strokeStyle = 'rgba(232,197,71,0.6)'; ctx.lineWidth = 2;
+        for (let n = -2; n <= 2; n++) { const a = s(b.x - 0.6, b.y + n * 0.25, 4), c = s(b.x - 0.4, b.y + n * 0.25 - 0.2, 4); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke(); }
+        this.teamStripe(x0, y0, x1, y1, 4 * k + 2, team);
+        // crane arm swinging over the lift
+        const base = s(x0 + 0.2, y0 + 0.2, 4), top = s(x0 + 0.2, y0 + 0.2, 34 * k);
+        const sw = Math.sin(b.anim * 0.8) * 0.3;
+        const arm = s(b.x + sw, b.y - sw, 34 * k);
+        ctx.strokeStyle = '#e0b43d'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(top.x, top.y); ctx.lineTo(arm.x, arm.y); ctx.stroke();
+        ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(arm.x, arm.y); ctx.lineTo(arm.x, arm.y + 14); ctx.stroke();
+        break;
+      }
+      case 'strikeUplink': {
+        const ready = this.powerReady(b);
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1), { windows: true });
+        this.teamStripe(x0, y0, x1, y1, H, team);
+        this.cylinder(b.x, b.y, H, 8, 14 * k, '#5d6066', team);
+        // big dish aimed at the sky
+        const d = s(b.x, b.y, H + 22 * k);
+        ctx.fillStyle = '#d9dcd6';
+        ctx.beginPath(); ctx.ellipse(d.x, d.y, 30, 14, -0.35, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#b8bcb6';
+        ctx.beginPath(); ctx.ellipse(d.x + 2, d.y + 1, 20, 9, -0.35, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 6, d.y - 22); ctx.stroke();
+        const glow = ready ? 0.6 + Math.sin(b.anim * 5) * 0.35 : 0.25;
+        ctx.fillStyle = `rgba(140,220,255,${glow})`;
+        ctx.beginPath(); ctx.arc(d.x - 6, d.y - 22, ready ? 6 : 3, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'missileSilo': {
+        const ready = this.powerReady(b);
+        this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
+        this.teamStripe(x0, y0, x1, y1, H, team);
+        // two blast doors that open when a missile is ready
+        const open = ready ? 0.45 : 0;
+        const hole = [s(b.x - 0.7, b.y - 0.7, H), s(b.x + 0.7, b.y - 0.7, H), s(b.x + 0.7, b.y + 0.7, H), s(b.x - 0.7, b.y + 0.7, H)];
+        this.poly(hole, '#151515');
+        if (ready) {
+          const tip = s(b.x, b.y, H + 10), body = s(b.x, b.y, H);
+          ctx.fillStyle = '#c9c9c0';
+          ctx.fillRect(tip.x - 4, tip.y, 8, body.y - tip.y);
+          ctx.fillStyle = '#d33';
+          ctx.beginPath(); ctx.moveTo(tip.x - 4, tip.y); ctx.lineTo(tip.x, tip.y - 8); ctx.lineTo(tip.x + 4, tip.y); ctx.fill();
+        }
+        this.poly([s(b.x - 0.75 - open, b.y - 0.75, H + 1), s(b.x - open, b.y - 0.75, H + 1), s(b.x - open, b.y + 0.75, H + 1), s(b.x - 0.75 - open, b.y + 0.75, H + 1)], '#6b5f55', 'rgba(0,0,0,0.5)');
+        this.poly([s(b.x + open, b.y - 0.75, H + 1), s(b.x + 0.75 + open, b.y - 0.75, H + 1), s(b.x + 0.75 + open, b.y + 0.75, H + 1), s(b.x + open, b.y + 0.75, H + 1)], '#6b5f55', 'rgba(0,0,0,0.5)');
+        const warn = s(b.x, b.y, H + 1);
+        ctx.fillStyle = ready && Math.floor(b.anim * 3) % 2 ? '#ff4a3a' : '#5a2a22';
+        ctx.fillRect(warn.x - 2, warn.y - 2, 4, 4);
+        break;
+      }
+      case 'oilDerrick': {
+        this.box(x0, y0, x1, y1, 0, 3, '#5a554c', '#3d3a34', '#4a463f');
+        // storage tank
+        this.cylinder(x0 + 0.5, y1 - 0.5, 3, 12, 20, '#8d8577', b.owner.neutral ? '#8a8270' : team);
+        // lattice derrick
+        const f1 = s(b.x - 0.2, y0 + 0.3, 3), f2 = s(x1 - 0.25, b.y - 0.1, 3), f3 = s(b.x + 0.55, b.y + 0.55, 3), apex = s(b.x + 0.3, b.y + 0.1, H + 46);
+        ctx.strokeStyle = '#2e2b27'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (const f of [f1, f2, f3]) { ctx.moveTo(f.x, f.y); ctx.lineTo(apex.x, apex.y); }
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let t = 0.2; t < 1; t += 0.2) {
+          const p1 = { x: f1.x + (apex.x - f1.x) * t, y: f1.y + (apex.y - f1.y) * t }, p2 = { x: f2.x + (apex.x - f2.x) * t, y: f2.y + (apex.y - f2.y) * t };
+          ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+        }
+        ctx.stroke();
+        // pumpjack nodding
+        const pivot = s(x1 - 0.45, y1 - 0.45, 18), nod = Math.sin(b.anim * (b.owner.neutral ? 1 : 2.2)) * 7;
+        const post = s(x1 - 0.45, y1 - 0.45, 3);
+        ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(post.x, post.y); ctx.lineTo(pivot.x, pivot.y); ctx.stroke();
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(pivot.x - 16, pivot.y + nod); ctx.lineTo(pivot.x + 14, pivot.y - nod); ctx.stroke();
+        ctx.fillStyle = b.owner.neutral ? '#8a8270' : team;
+        ctx.fillRect(pivot.x - 20, pivot.y + nod - 4, 8, 8);
+        break;
+      }
+      case 'civBuilding': {
+        const h = hashTile(b.tx, b.ty);
+        const wall = ['#9c8b74', '#8f9488', '#a08470'][Math.floor(h * 3)];
+        const roof = ['#6b4a3a', '#555a5e', '#5e5240'][Math.floor(h * 3)];
+        this.box(x0, y0, x1, y1, 0, H, roof, shade(wall, -0.3), shade(wall, -0.08), { windows: true });
+        // roof water tank or chimney
+        if (h > 0.5) this.cylinder(x0 + 0.5, y0 + 0.5, H, 5, 8, '#6d6a62', null);
+        else this.box(x1 - 0.5, y0 + 0.2, x1 - 0.25, y0 + 0.45, H, H + 10, '#6b5a4a', '#4a3e33', '#5a4b3d');
+        if (b.garrison?.length) {
+          const fp = s(x0 + 0.3, y1 - 0.3, H), ft = s(x0 + 0.3, y1 - 0.3, H + 22);
+          ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(fp.x, fp.y); ctx.lineTo(ft.x, ft.y); ctx.stroke();
+          ctx.fillStyle = team;
+          ctx.fillRect(ft.x, ft.y, 11, 7);
+          // one pip per soldier inside
+          const c = s(b.x, b.y, H + 30);
+          for (let n = 0; n < b.def.garrison; n++) {
+            ctx.fillStyle = n < b.garrison.length ? team : 'rgba(0,0,0,0.5)';
+            ctx.fillRect(c.x - b.def.garrison * 4 + n * 8, c.y, 6, 4);
+          }
+        }
+        break;
+      }
       default:
         this.box(x0, y0, x1, y1, 0, H, ROOF, shade(WALL, -0.35), shade(WALL, -0.1));
     }
     ctx.globalAlpha = 1;
+    if (b.charge) {
+      // planted demolition charge: blinking light and a countdown
+      const p = s(b.x, b.y + b.h / 2, 8);
+      ctx.fillStyle = Math.floor(this.time * 6) % 2 ? '#ff3020' : '#600';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.ceil(b.charge.t), p.x, p.y - 8);
+      ctx.textAlign = 'start';
+    }
 
     if (damaged && Math.random() < 0.15) {
       const fx = b.tx + Math.random() * b.w, fy = b.ty + Math.random() * b.h;
@@ -905,6 +1089,14 @@ export class Renderer {
       ctx.textAlign = 'center';
       if (Math.floor(this.time * 3) % 2) ctx.fillText('🔧', p.x, p.y);
     }
+  }
+
+  // Is the support power this building provides charged?
+  powerReady(b) {
+    for (const [id, pw] of Object.entries(POWERS)) {
+      if (pw.building === b.key) return (b.owner.powers?.[id]?.charge || 0) >= pw.charge;
+    }
+    return false;
   }
 
   // Barrel from an entity's center along its turret direction (side: sideways offset in tiles)
@@ -1226,7 +1418,7 @@ export class Renderer {
     const team = u.owner.color;
     const step = u.moving ? Math.sin(u.anim * 3) : 0;
     const gear = u.def.gear;
-    const bulky = gear === 'tesla';
+    const bulky = gear === 'tesla' || gear === 'heavy';
     const soviet = u.owner.faction === 'soviet';
     const outline = 'rgba(0,0,0,0.55)';
     // facing as a screen-space unit vector
@@ -1238,7 +1430,8 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.scale(1.2, 1.2);
+    const sc = u.def.hero ? 1.45 : 1.2;
+    ctx.scale(sc, sc);
     ctx.lineWidth = 0.8;
     // legs (boots + trousers), alternating while walking
     const uniform = soviet ? '#5a5240' : '#4b5a3a';
@@ -1271,7 +1464,23 @@ export class Renderer {
     ctx.fillStyle = '#e2b98f';
     ctx.beginPath(); ctx.arc(0, -14, 2.4, 0, Math.PI * 2); ctx.fill();
     ctx.stroke();
-    if (bulky) {
+    if (gear === 'engineer') {
+      // yellow hard hat
+      ctx.fillStyle = '#e8c547';
+      ctx.beginPath(); ctx.arc(0, -14.6, 3, Math.PI, 0); ctx.fill();
+      ctx.fillRect(-3.6, -14.8, 7.2, 1);
+    } else if (gear === 'sniper') {
+      // beret and shades
+      ctx.fillStyle = '#2b4a2b';
+      ctx.beginPath(); ctx.ellipse(0.5, -16, 3.2, 1.5, -0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.fillRect(-1.5 + vx, -14.6, 3, 1);
+    } else if (gear === 'heavy') {
+      ctx.fillStyle = '#2d2f33';
+      ctx.beginPath(); ctx.arc(0, -14.5, 3.2, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#d33';
+      ctx.fillRect(-1.5 + vx, -14.6, 3, 1);
+    } else if (bulky) {
       ctx.fillStyle = '#3a3e46';
       ctx.beginPath(); ctx.arc(0, -14.5, 3, Math.PI, 0); ctx.fill();
       ctx.fillStyle = 'rgba(140,210,255,0.8)';
@@ -1287,12 +1496,17 @@ export class Renderer {
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
       ctx.fillRect(-1.5, -16.8, 1.5, 0.8);
     }
-    // arm + weapon
-    ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : '#151515';
-    ctx.lineWidth = gear === 'rifle' ? 1.4 : 2.6;
-    const wl = gear === 'tesla' ? 5 : gear === 'rocket' ? 9 : 7.5;
+    // arm + weapon (engineers carry a toolbox instead)
     const sx = vx * 1.5, sy = -9.5;
-    ctx.beginPath(); ctx.moveTo(sx - vx * 2, sy - vy * 2); ctx.lineTo(sx + vx * wl, sy + vy * wl); ctx.stroke();
+    if (gear === 'engineer') {
+      ctx.fillStyle = '#b8402e';
+      ctx.fillRect(sx + vx * 3 - 2, sy + 2, 4, 3);
+    } else {
+      ctx.strokeStyle = gear === 'rocket' ? '#5b6b3a' : gear === 'tesla' ? '#7fb8e0' : '#151515';
+      ctx.lineWidth = gear === 'rifle' || gear === 'sniper' ? 1.4 : 2.6;
+      const wl = gear === 'tesla' ? 5 : gear === 'rocket' ? 9 : gear === 'sniper' ? 11 : gear === 'heavy' ? 8 : 7.5;
+      ctx.beginPath(); ctx.moveTo(sx - vx * 2, sy - vy * 2); ctx.lineTo(sx + vx * wl, sy + vy * wl); ctx.stroke();
+    }
     ctx.fillStyle = bulky ? '#4a4f58' : shade(team, -0.25);
     ctx.fillRect(sx + vx * 2 - 1, sy + vy * 2 - 1, 2, 2);
     ctx.restore();
@@ -1317,6 +1531,41 @@ export class Renderer {
       } else {
         ctx.fillStyle = '#ffe9a0';
         ctx.beginPath(); ctx.arc(s.x, s.y, 2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  // Incoming superweapons: a target ring for everyone to see, then the strike itself
+  drawStrikes() {
+    const ctx = this.ctx;
+    for (const st of this.g.strikes) {
+      const pw = POWERS[st.power];
+      if (pw.kind === 'paradrop') continue;
+      const p = this.toScreen(st.x, st.y);
+      if (!this.onScreen(p, 300)) continue;
+      const pulse = 0.5 + Math.sin(this.time * 10) * 0.3;
+      const rr = pw.radius * HALF_W * 1.4;
+      ctx.strokeStyle = `rgba(255,60,40,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, rr, rr / 2, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p.x - 10, p.y); ctx.lineTo(p.x + 10, p.y); ctx.moveTo(p.x, p.y - 5); ctx.lineTo(p.x, p.y + 5); ctx.stroke();
+      if (pw.kind === 'strike' && st.t < 1.2) {
+        // beam from orbit, widening as it lands
+        const w = (1.2 - st.t) * 30 + 4;
+        const grd = ctx.createLinearGradient(p.x - w, 0, p.x + w, 0);
+        grd.addColorStop(0, 'rgba(120,200,255,0)');
+        grd.addColorStop(0.5, 'rgba(230,250,255,0.95)');
+        grd.addColorStop(1, 'rgba(120,200,255,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(p.x - w, -10, w * 2, p.y + 10);
+      } else if (pw.kind === 'missile' && st.t < 1.5) {
+        const m = this.toScreen(st.x, st.y, (st.t / 1.5) * 500);
+        ctx.fillStyle = '#ddd';
+        ctx.fillRect(m.x - 3, m.y - 18, 6, 18);
+        ctx.fillStyle = '#d33';
+        ctx.beginPath(); ctx.moveTo(m.x - 3, m.y); ctx.lineTo(m.x, m.y + 7); ctx.lineTo(m.x + 3, m.y); ctx.fill();
+        ctx.fillStyle = 'rgba(255,170,60,0.8)';
+        ctx.beginPath(); ctx.arc(m.x, m.y - 20, 4 + Math.random() * 2, 0, Math.PI * 2); ctx.fill();
       }
     }
   }
@@ -1367,6 +1616,33 @@ export class Renderer {
           ctx.fillText(e.rank === 2 ? 'ELITE' : 'PROMOTED', p.x, p.y);
           ctx.textAlign = 'start';
           ctx.globalAlpha = 1;
+          break;
+        }
+        case 'cash': {
+          ctx.globalAlpha = Math.min(1, t * 2);
+          ctx.font = 'bold 12px Consolas, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#000';
+          ctx.fillText(`+$${e.amount}`, p.x + 1, p.y + 1);
+          ctx.fillStyle = '#7dff7d';
+          ctx.fillText(`+$${e.amount}`, p.x, p.y);
+          ctx.textAlign = 'start';
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'chute': {
+          if (e.z < 2) break;
+          ctx.fillStyle = 'rgba(230,230,220,0.9)';
+          ctx.beginPath(); ctx.arc(p.x, p.y - 22, 10, Math.PI, 0); ctx.fill();
+          ctx.strokeStyle = 'rgba(80,80,80,0.8)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(p.x - 10, p.y - 22); ctx.lineTo(p.x, p.y - 6); ctx.lineTo(p.x + 10, p.y - 22); ctx.stroke();
+          break;
+        }
+        case 'sweep': {
+          const rr = e.r * (1 - t) * HALF_W * 1.4;
+          ctx.strokeStyle = `rgba(120,255,160,${t})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, rr, rr / 2, 0, 0, Math.PI * 2); ctx.stroke();
           break;
         }
         case 'chrono': {
@@ -1545,8 +1821,20 @@ export class Renderer {
     const ctx = this.ctx;
     const r = this.entityRect(u);
     const x = r.x + r.w - 2, y = r.y + 2;
+    if (u.def.hero) {
+      // heroes wear a gold star
+      ctx.fillStyle = '#ffd94a';
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let n = 0; n < 10; n++) {
+        const a = -Math.PI / 2 + (n * Math.PI) / 5, rr = n % 2 ? 2.2 : 5;
+        ctx.lineTo(r.x + 4 + Math.cos(a) * rr, y + 3 + Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
     ctx.lineWidth = 2;
-    for (let n = 0; n < u.rank; n++) {
+    for (let n = 0; n < (u.rank || 0); n++) {
       const cy = y + n * 4;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
       ctx.beginPath(); ctx.moveTo(x - 4, cy + 1); ctx.lineTo(x, cy + 4); ctx.lineTo(x + 4, cy + 1); ctx.stroke();
@@ -1596,6 +1884,7 @@ export class Renderer {
       ctx.fillText(reason, W / 2, Hc / 2 + 4);
       return;
     }
+    if (this.miniStamp !== g.terrainStamp) { this.miniStamp = g.terrainStamp; this.miniTerrain = null; }
     if (!this.miniTerrain) {
       const c = document.createElement('canvas');
       c.width = W; c.height = Hc;
@@ -1604,7 +1893,7 @@ export class Renderer {
         for (let x = 0; x < S; x++) {
           const t = m.terrain[m.idx(x, y)];
           const bio = m.biome[m.idx(x, y)];
-          mc.fillStyle = t === WATER ? '#1d4466' : t === ROCK ? (bio === 2 ? '#9aa0a8' : '#555149')
+          mc.fillStyle = t === BRIDGE ? '#7a6a55' : t === WATER ? '#1d4466' : t === ROCK ? (bio === 2 ? '#9aa0a8' : '#555149')
             : bio === 1 ? '#a8925e' : bio === 2 ? '#d6dbe0' : '#3d5a2a';
           const p = mp(x, y);
           mc.fillRect(p.x - k, p.y, k * 2 + 0.5, k + 0.5);

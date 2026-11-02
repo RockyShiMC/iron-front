@@ -58,6 +58,13 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 - A* pathfinding with path smoothing, formation moves, and units pushing apart so they don't stack
 - Terrain painted lazily in 8×8-tile chunks, so even the 120×120 World map starts in well under a second
 - Sell, repair, rally points, control groups and a minimap
+- Engineers (both sides) capture enemy buildings and the map's neutral Oil Derricks (steady income), fully repair your own buildings, and rebuild destroyed bridges
+- Civilian buildings in the middle of the map: up to 5 infantry can occupy one and fire from inside (D or the Evacuate button to leave). If it collapses they bail out hurt
+- Bridges across narrow water and lake shortcuts. Force fire destroys them (and whatever is on them); an engineer rebuilds them
+- Walls: drag to lay a line; extra segments cost $50 each
+- Service Depot repairs vehicles (the Shipyard repairs ships, airfields patch up aircraft). Click the depot with units selected, or press R
+- Superweapons on a long timer, shown to both players: Allied Orbital Strike, Soviet Missile Strike. Support powers from the Radar: Allied Recon Sweep, Soviet Paradrop
+- Heroes, one at a time: Allied Commando (sniper that kills infantry in one shot, plants demolition charges on buildings) and Soviet Iron Major (heavy machine gun, very tough). Both repair themselves
 - Veterancy: units earn experience from what they destroy. Veterans (one chevron) and elites (two) deal more damage, take less, reload faster, and elites repair themselves
 - Orders: Shift-click to queue waypoints, force fire on anything including the ground, and guard a spot or escort another unit
 - Settings: game speed, scroll speed, sound and voice volume, and when to show health bars; remembered between battles
@@ -80,6 +87,8 @@ At both levels the AI rebuilds lost structures, keeps all its factories producin
 | Shift + click | Queue waypoints |
 | F, or Ctrl / ⌘ + click | Force fire at a target or the ground |
 | G | Guard: click a unit to escort it, or a spot to hold |
+| R | Send damaged vehicles / ships to be repaired |
+| D | Evacuate a selected garrisoned building |
 | Ctrl+1–9, 1–9 | Set / recall group (double tap to jump to it) |
 | Esc | Battle menu (pause / save / load / restart / quit) |
 | H | Jump to base |

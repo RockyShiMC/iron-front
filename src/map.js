@@ -4,6 +4,7 @@ import { MAPS } from './maps.js';
 export const GRASS = 0;
 export const WATER = 1;
 export const ROCK = 2;
+export const BRIDGE = 3; // land units cross it, ships pass underneath
 
 // Biomes only change how passable land looks
 export const BIOME_GRASS = 0;
@@ -50,6 +51,8 @@ export class GameMap {
     this.oreMax = new Uint16Array(n);
     this.oreTiles = [];
     this.buildingAt = new Array(n).fill(null);
+    this.bridges = []; // { tiles, hp, maxHp, dead, x, y }
+    this.bridgeAt = new Int16Array(n).fill(-1);
     if (def.bbox) this.generateGeo(def, seed);
     else this.generate(seed);
     for (let i = 0; i < this.ore.length; i++) if (this.oreMax[i] > 0) this.oreTiles.push(i);
@@ -62,7 +65,7 @@ export class GameMap {
   isPassable(x, y) {
     if (!this.inBounds(x, y)) return false;
     const i = y * this.w + x;
-    return this.terrain[i] === GRASS && !this.buildingAt[i];
+    return (this.terrain[i] === GRASS || this.terrain[i] === BRIDGE) && !this.buildingAt[i];
   }
 
   // domain: 'land' | 'sea' | 'air'
@@ -71,11 +74,12 @@ export class GameMap {
     if (domain === 'air') return true;
     const i = y * this.w + x;
     if (this.buildingAt[i]) return false;
-    return this.terrain[i] === (domain === 'sea' ? WATER : GRASS);
+    const t = this.terrain[i];
+    return t === BRIDGE || t === (domain === 'sea' ? WATER : GRASS);
   }
 
   isBuildable(x, y) {
-    return this.isPassable(x, y);
+    return this.inBounds(x, y) && this.terrain[y * this.w + x] === GRASS && !this.buildingAt[y * this.w + x];
   }
 
   oreAt(x, y) {
@@ -106,7 +110,9 @@ export class GameMap {
     // Clear base areas
     for (const s of this.starts) this.fill(s.x + 1.5, s.y + 1.5, 9, GRASS);
 
-    // Make sure both bases are connected by land
+    // Bridge narrow water between separate pieces of land, then make sure both
+    // bases are connected (cutting a land corridor if bridges weren't enough)
+    this.addBridges();
     if (!this.connected(this.starts[0], this.starts[1])) {
       const a = this.starts[0], b = this.starts[1];
       const steps = Math.ceil(dist(a.x, a.y, b.x, b.y));
@@ -193,6 +199,7 @@ export class GameMap {
       return { x: sx, y: sy };
     });
 
+    this.addBridges();
     this.connectThroughRock(this.starts[0], this.starts[1]);
 
     // Ore: two fields next to each base, plus the map's contested fields
@@ -277,7 +284,7 @@ export class GameMap {
   fill(cx, cy, r, t) {
     for (let y = Math.floor(cy - r); y <= cy + r; y++) {
       for (let x = Math.floor(cx - r); x <= cx + r; x++) {
-        if (this.inBounds(x, y) && dist(x + 0.5, y + 0.5, cx, cy) <= r) this.terrain[this.idx(x, y)] = t;
+        if (this.inBounds(x, y) && dist(x + 0.5, y + 0.5, cx, cy) <= r && this.bridgeAt[this.idx(x, y)] < 0) this.terrain[this.idx(x, y)] = t;
       }
     }
   }
@@ -295,10 +302,106 @@ export class GameMap {
         const nx = x + dx, ny = y + dy;
         if (!this.inBounds(nx, ny)) continue;
         const j = this.idx(nx, ny);
-        if (!seen[j] && this.terrain[j] === GRASS) { seen[j] = 1; q.push(j); }
+        if (!seen[j] && (this.terrain[j] === GRASS || this.terrain[j] === BRIDGE)) { seen[j] = 1; q.push(j); }
       }
     }
     return false;
+  }
+
+  // Up to `max` bridges, each the shortest straight water crossing (2 wide where it
+  // fits) that joins two pieces of land not already connected.
+  addBridges(max = 3, maxLen = 8) {
+    const S = this.w, n = S * S;
+    // label land pieces (grass and rock both count as land here)
+    const comp = new Int32Array(n).fill(-1), size = [];
+    for (let i = 0; i < n; i++) {
+      if (comp[i] >= 0 || this.terrain[i] === WATER) continue;
+      const id = size.length, q = [i];
+      comp[i] = id;
+      for (let qi = 0; qi < q.length; qi++) {
+        const x = q[qi] % S, y = (q[qi] / S) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy, j = ny * S + nx;
+          if (this.inBounds(nx, ny) && comp[j] < 0 && this.terrain[j] !== WATER) { comp[j] = id; q.push(j); }
+        }
+      }
+      size.push(q.length);
+    }
+    const run = (x, y, dx, dy) => {
+      // water tiles from (x, y) in direction (dx, dy), ending on grass
+      const tiles = [];
+      for (let k = 1; k <= maxLen + 1; k++) {
+        const nx = x + dx * k, ny = y + dy * k;
+        if (!this.inBounds(nx, ny)) return null;
+        const t = this.terrain[ny * S + nx];
+        if (t === WATER) { tiles.push(ny * S + nx); continue; }
+        return t === GRASS && tiles.length >= 2 ? { tiles, end: ny * S + nx } : null;
+      }
+      return null;
+    };
+    const cands = [];
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        if (this.terrain[y * S + x] !== GRASS) continue;
+        for (const [dx, dy] of [[1, 0], [0, 1]]) {
+          const r = run(x, y, dx, dy);
+          if (!r) continue;
+          const a = comp[y * S + x], b = comp[r.end];
+          if (size[a] < 40 || size[b] < 40) continue;
+          cands.push({ a, b, tiles: r.tiles, x, y, dx, dy, end: r.end });
+        }
+      }
+    }
+    cands.sort((p, q) => p.tiles.length - q.tiles.length);
+    const parent = size.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    // Walking distance over land between two tiles (capped), to spot long detours
+    const walk = (from, to, cap) => {
+      const d = new Int32Array(n).fill(-1), q = [from];
+      d[from] = 0;
+      for (let qi = 0; qi < q.length; qi++) {
+        const i = q[qi];
+        if (i === to) return d[i];
+        if (d[i] >= cap) return cap;
+        const x = i % S, y = (i / S) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy, j = ny * S + nx;
+          if (this.inBounds(nx, ny) && d[j] < 0 && (this.terrain[j] === GRASS || this.terrain[j] === BRIDGE)) { d[j] = d[i] + 1; q.push(j); }
+        }
+      }
+      return cap;
+    };
+    let checked = 0;
+    for (const c of cands) {
+      if (this.bridges.length >= max) break;
+      if (c.tiles.some((i) => this.bridgeAt[i] >= 0)) continue;
+      const mid = c.tiles[c.tiles.length >> 1], mx = mid % S, my = (mid / S) | 0;
+      if (this.bridges.some((b) => dist(b.x, b.y, mx, my) < 10)) continue;
+      if (find(c.a) === find(c.b)) {
+        // same land: only worth it as a shortcut over a long detour
+        if (checked++ > 120) continue;
+        const len = c.tiles.length + 1;
+        if (walk(c.y * S + c.x, c.end, len * 3 + 10) < len * 3 + 10) continue;
+      }
+      parent[find(c.a)] = find(c.b);
+      // widen to two tiles when the neighbouring row / column has the same crossing
+      const side = run(c.x + c.dy, c.y + c.dx, c.dx, c.dy);
+      const tiles = [...c.tiles];
+      if (this.terrain[(c.y + c.dx) * S + c.x + c.dy] === GRASS && side && side.tiles.length === c.tiles.length) tiles.push(...side.tiles);
+      const id = this.bridges.length;
+      for (const i of tiles) { this.terrain[i] = BRIDGE; this.bridgeAt[i] = id; }
+      const cx = tiles.reduce((s2, i) => s2 + (i % S), 0) / tiles.length + 0.5;
+      const cy = tiles.reduce((s2, i) => s2 + ((i / S) | 0), 0) / tiles.length + 0.5;
+      this.bridges.push({ tiles, hp: 1500, maxHp: 1500, dead: false, x: cx, y: cy, dx: c.dx, dy: c.dy });
+    }
+  }
+
+  // Bridge (alive or destroyed) covering this world position, or null
+  bridgeOn(x, y) {
+    const tx = Math.floor(x), ty = Math.floor(y);
+    if (!this.inBounds(tx, ty)) return null;
+    const id = this.bridgeAt[ty * this.w + tx];
+    return id >= 0 ? this.bridges[id] : null;
   }
 
   // Nearest passable tile to (x,y) for a domain, preferring ones closer to (fromX, fromY).

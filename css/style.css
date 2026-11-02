@@ -96,7 +96,51 @@ html, body {
   grid-template-columns: 1fr 1fr;
   gap: 4px;
   align-content: start;
-  min-height: 160px;
+  min-height: 110px;
+  flex: 0 1 auto;
+  overflow-y: auto;
+}
+
+#powers { display: flex; flex-direction: column; gap: 3px; }
+#powers:empty { display: none; }
+#powers button {
+  position: relative;
+  overflow: hidden;
+  background: #182025;
+  border: 1px solid var(--edge);
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px 6px;
+  text-align: left;
+  cursor: pointer;
+}
+#powers button .bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(224, 180, 61, 0.25); pointer-events: none; }
+#powers button span { position: relative; }
+#powers button .pct { float: right; color: var(--muted); }
+#powers button.ready { border-color: var(--good); animation: glow 1s infinite alternate; }
+#powers button.ready .pct { color: var(--good); }
+#powers button.aiming { box-shadow: inset 0 0 0 2px var(--accent); }
+@keyframes glow { from { background: #1d3320; } to { background: #2a4a2e; } }
+
+#sw-timers {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 13px Consolas, monospace;
+  pointer-events: none;
+}
+#sw-timers div { background: rgba(0, 0, 0, 0.6); padding: 2px 8px; border-left: 3px solid; }
+#selinfo button {
+  margin-top: 4px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--edge);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
 }
 
 .item {
@@ -140,6 +184,7 @@ html, body {
 }
 #selinfo small { color: var(--muted); }
 #selinfo .enemy { color: var(--bad); }
+#selinfo .muted { color: var(--muted); }
 
 #messages {
   position: absolute;
