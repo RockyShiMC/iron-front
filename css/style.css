@@ -451,3 +451,35 @@ body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border
 @media (pointer: coarse) {
   #tabs button, #actions button, #audio-ctl button, #btn-menu { min-height: 34px; }
 }
+
+/* Test mode */
+.test-toggle { display: block; margin-top: 12px; color: var(--muted); font-size: 13px; cursor: pointer; }
+.test-toggle input { accent-color: var(--accent); vertical-align: middle; }
+#test-panel {
+  position: absolute; left: 8px; top: 8px; bottom: 8px; width: 290px; z-index: 7; overflow-y: auto;
+  background: rgba(14, 18, 21, 0.94); border: 1px solid var(--accent); padding: 8px 10px; font-size: 12px;
+}
+#test-panel[hidden] { display: none; }
+#test-panel h4 { margin: 10px 0 4px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); }
+#test-panel .tp-head { display: flex; align-items: center; gap: 8px; }
+#test-panel .tp-head b { flex: 1; font-size: 14px; }
+#test-panel .tp-row { display: flex; gap: 4px; margin: 3px 0; }
+#test-panel .tp-row > * { flex: 1; min-width: 0; }
+#test-panel button, #test-panel select, #test-panel input[type=number] {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--edge); padding: 4px; font-size: 12px; cursor: pointer;
+}
+#test-panel button:hover { border-color: #8fb0c0; }
+#test-panel button.on { border-color: var(--accent); background: #34434c; color: #fff; }
+#test-panel .tp-head button { flex: none; }
+#test-panel label { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+#test-panel label input[type=range] { flex: 1; accent-color: var(--accent); }
+#test-panel label span { width: 38px; text-align: right; color: var(--muted); }
+#test-panel .tp-check { cursor: pointer; }
+#test-panel .tp-ai { border: 1px solid var(--edge); padding: 6px; margin: 4px 0; }
+#test-panel .tp-info { color: var(--good); font-family: Consolas, monospace; font-size: 11px; margin-top: 4px; }
+#test-panel .tp-muted { color: var(--muted); font-size: 11px; }
+#test-badge {
+  position: absolute; top: 8px; right: calc(var(--sidebar-w) + 8px); z-index: 6; pointer-events: none;
+  background: #8c2a1b; color: #fff; font: bold 11px Consolas, monospace; padding: 2px 8px; letter-spacing: 1px;
+}
+#test-badge[hidden] { display: none; }

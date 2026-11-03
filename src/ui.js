@@ -1,5 +1,6 @@
 import { FACTIONS, POWERS, defOf } from './config.js';
 import { settings } from './settings.js';
+import { testModeInfo } from './testpanel.js';
 import { categoryOf } from './player.js';
 
 export class UI {
@@ -279,6 +280,7 @@ export class UI {
     if (this.input.mode === 'sell') info = '<b>Sell mode:</b> click one of your structures';
     if (this.input.mode === 'repair') info = '<b>Repair mode:</b> click a damaged structure';
     if (this.input.placing) info = `<b>Place ${defOf(this.input.placing.key).name}</b><br><small>Right click to cancel</small>`;
+    info = testModeInfo(this.input) || info;
     if (this.el.info.innerHTML !== info) this.el.info.innerHTML = info;
 
     // EVA-style messages

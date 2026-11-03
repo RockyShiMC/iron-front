@@ -14,7 +14,7 @@ export class AI {
   constructor(g, player) {
     this.g = g;
     this.p = player;
-    this.d = g.difficulty;
+    this.tuning = null; // test mode: overrides on top of the battle's difficulty
     this.timer = 2;
     this.attacking = new Set();
     this.waveCount = 0;
@@ -30,6 +30,16 @@ export class AI {
     }
   }
 
+  // Difficulty settings in effect (the battle's, plus any test-mode tuning)
+  get d() {
+    return this.tuning ? (this._d ||= { ...this.g.difficulty, ...this.tuning }) : this.g.difficulty;
+  }
+
+  tune(patch) {
+    this.tuning = { ...this.tuning, ...patch };
+    this._d = null;
+  }
+
   conyard() {
     return this.g.buildings.find((b) => b.owner === this.p && b.key === 'conyard');
   }
@@ -39,6 +49,7 @@ export class AI {
   }
 
   update(dt) {
+    if (this.frozen) return; // test mode: the computer does nothing at all
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.d.think;

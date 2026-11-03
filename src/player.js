@@ -24,6 +24,7 @@ export class Player {
     this.counts = {};
     this.defeated = false;
     this.powers = {}; // support power id -> { charge, announced }
+    this.cheats = {}; // test mode switches: instant, god, power, tech, anywhere
     this.team = id; // players on the same team don't fight
     this.seat = id; // which of the map's bases this player starts on
   }
@@ -56,11 +57,12 @@ export class Player {
     }
   }
 
-  lowPower() { return this.powerUse > this.powerOut; }
+  lowPower() { return !this.cheats?.power && this.powerUse > this.powerOut; }
   hasPower() { return !this.lowPower(); }
   has(key) { return (this.counts[key] || 0) > 0; }
 
   prereqsMet(key) {
+    if (this.cheats?.tech) return true; // test mode: everything unlocked
     const def = defOf(key);
     return (def.prereq || []).every((k) => this.has(k));
   }
@@ -120,7 +122,8 @@ export class Player {
       if (item.ready) continue;
       const def = defOf(item.key);
       if (!this.producerFor(cat, g) || !this.prereqsMet(item.key)) continue; // on hold
-      const rate = ((this.lowPower() ? 0.5 : 1) * this.buildMult) / def.time;
+      // test mode's instant build finishes in one tick (still paid for)
+      const rate = this.cheats?.instant ? 1e6 : ((this.lowPower() ? 0.5 : 1) * this.buildMult) / def.time;
       const dp = Math.min(rate * dt, 1 - item.progress);
       const cost = def.cost * dp;
       if (this.credits < cost) {

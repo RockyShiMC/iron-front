@@ -66,7 +66,7 @@ export function snapshot(game, renderer) {
       strikes: enc(game.strikes),
       bridges: game.map.bridges.map((b) => ({ hp: b.hp, dead: b.dead })),
       missionState: game.missionState || null,
-      ais: game.ais.map((ai) => fields(ai, enc, ['g', 'p', 'd'])),
+      ais: game.ais.map((ai) => fields(ai, enc, ['g', 'p', '_d'])),
     },
   };
 }

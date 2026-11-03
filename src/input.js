@@ -238,6 +238,13 @@ export class Input {
     const g = this.g;
     const w = this.r.toWorld(sx, sy);
 
+    if (this.placing?.free) {
+      // test mode: free building, stays in placing mode for more
+      const { key, tx, ty, owner } = this.placing;
+      if (g.fits(g.players[owner], key, tx, ty)) g.command({ type: 'test', op: 'place', player: owner, key, x: tx, y: ty });
+      else g.sound('error');
+      return;
+    }
     if (this.placing) {
       const { key, tx, ty } = this.placing;
       if (g.canPlace(g.human, key, tx, ty)) { g.command({ type: 'place', key, x: tx, y: ty }); this.placing = null; }
@@ -259,6 +266,13 @@ export class Input {
       } else {
         g.sound('error');
       }
+      return;
+    }
+
+    if (this.mode === 'spawn') {
+      // test mode: units appear where you click, as often as you like
+      g.command({ type: 'test', op: 'spawn', ...this.spawn, x: w.x, y: w.y });
+      this.addMarker(w.x, w.y, '#ffffff');
       return;
     }
 
@@ -516,7 +530,7 @@ export class Input {
     if (this.placing) cursor = 'crosshair';
     else if (this.mode === 'sell') cursor = 'cell';
     else if (this.mode === 'repair') cursor = 'help';
-    else if (this.mode === 'attackmove' || this.mode === 'forcefire' || this.mode === 'power') cursor = 'crosshair';
+    else if (this.mode === 'attackmove' || this.mode === 'forcefire' || this.mode === 'power' || this.mode === 'spawn') cursor = 'crosshair';
     else if (this.mode === 'guard') cursor = 'alias';
     else if (this.hover && g.hostile(this.hover.owner, g.human) && units.some((u) => g.canHit(u.weapon, this.hover))) cursor = 'crosshair';
     else if (this.hover && this.hover.owner === g.human) cursor = 'pointer';

@@ -580,7 +580,7 @@ export class Renderer {
     if (input.placing && !input.wallLine) {
       const pl = input.placing;
       const def = BUILDINGS[pl.key];
-      const ok = g.canPlace(g.human, pl.key, pl.tx, pl.ty);
+      const ok = pl.free ? g.fits(g.players[pl.owner], pl.key, pl.tx, pl.ty) : g.canPlace(g.human, pl.key, pl.tx, pl.ty);
       for (let y = pl.ty; y < pl.ty + def.h; y++) {
         for (let x = pl.tx; x < pl.tx + def.w; x++) {
           this.tilePath(x, y, 0.04);

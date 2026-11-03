@@ -64,6 +64,21 @@ The layout is made for landscape tablets; phone screens are too small for the si
 
 Battles are lockstep: only orders travel over the network (about 0.3 s from click to action), and every browser runs the identical battle. They compare fingerprints of their battles every few seconds and warn if they ever differ. If someone leaves, the battle carries on without them. Online battles can't be paused or saved; minimizing the game makes the other players wait until you're back. To play over the internet rather than a home network, the server has to be reachable by everyone (port forwarding or hosting it somewhere).
 
+## Test mode
+
+Tick **Test mode** on the start screen to open the test tools as soon as a battle starts, or press **F2** (or use **Test tools** in the pause menu) in any offline battle. They aren't available online or in replays; a "TEST MODE" badge shows once any tool has been used.
+
+- **Speed**: 0.5× to 8×, skip ahead a minute, reveal the map
+- **Money**: add or set credits for you or any computer player
+- **Your cheats**: instant build (still paid for), invulnerable, unlimited power, unlock everything, build anywhere; charge your support powers
+- **Spawn units**: any unit from any side, 1–20 at a time, for you or a computer player; click the map as often as you like
+- **Place building**: any building, free and finished, for anyone
+- **Selected**: heal, make elite, or destroy whatever is selected
+- **Computer players**: Easy / Normal / Hard / Brutal presets, or adjust income, build speed, first attack time and wave interval live; make one passive (only defends) or frozen (makes no decisions). A readout shows its money, army size and next wave
+- **Battle**: win or lose instantly (handy for campaign testing), plus time, tick, FPS and unit counts
+
+Test actions are commands like any other, so replays and saves include them.
+
 ## Replays
 
 Every battle you start (not loaded from a save) is recorded, and the last 10 are kept: open **Replays** on the start screen. Watch at 1×–8× with the whole map revealed, export a replay as a file, or import one. A replay is only the battle's seed plus your commands, so it stays small however long the battle ran.
@@ -190,6 +205,7 @@ It also reads your army: it builds whatever counters what you field (anti-tank i
 | `src/commands.js` | Player actions as commands (the only way players change the battle) |
 | `src/replays.js` | Recording, storing, exporting and importing replays |
 | `src/net.js` | Online lockstep: turns, waiting, desync checks |
+| `src/testpanel.js` | Test mode tools |
 | `src/maps.js` | Map catalog: geographic outlines, mountains, deserts, starts, ore |
 | `src/map.js` | Terrain generation (random and geographic), ore, land/sea/air passability |
 | `src/pathfinding.js` | A* on the tile grid plus line-of-sight smoothing |

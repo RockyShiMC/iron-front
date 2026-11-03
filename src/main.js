@@ -12,6 +12,7 @@ import { registerCustomMaps } from './customMaps.js';
 import { Editor } from './editor.js';
 import { listReplays, storeReplay, deleteReplay, importReplay, exportReplay } from './replays.js';
 import { Net } from './net.js';
+import { TestPanel } from './testpanel.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -55,7 +56,9 @@ function startGame(setup, loaded = null, replay = null, online = null) {
   const renderer = new Renderer(canvas, game);
   const input = new Input(canvas, game, renderer, ac.signal);
   const ui = new UI(game, input, renderer, audio, ac.signal);
-  session = { game, renderer, input, ui, ac };
+  const tools = new TestPanel(game, input, ac.signal);
+  session = { game, renderer, input, ui, ac, tools };
+  if (testMode && tools.available) tools.toggle(true);
   resize();
   if (loaded?.camera) {
     renderer.centerOn(loaded.camera.x, loaded.camera.y);
@@ -81,6 +84,8 @@ function startGame(setup, loaded = null, replay = null, online = null) {
 // Tear the current battle down so another can start without reloading the page
 function endGame() {
   if (!session) return;
+  session.tools.close();
+  document.getElementById('test-badge').hidden = true;
   storeReplay(session.game);
   if (session.game.net) { session.game.net.close(); lobby = null; }
   replayBar.hidden = true;
@@ -108,7 +113,7 @@ function frame(now) {
   // Fixed simulation steps: faster speeds (and fast-forwarded replays) just run more of them
   let steps = 0;
   if ((running || net) && !paused) {
-    const speed = game.replay ? replaySpeed : net ? 1 : settings.speed;
+    const speed = game.replay ? replaySpeed : net ? 1 : game.testSpeed ?? settings.speed;
     const max = Math.ceil(speed * 4) + 2;
     acc += dt * speed;
     while (acc >= TICK && steps < max && (net || !game.result)) {
@@ -125,6 +130,7 @@ function frame(now) {
   renderer.draw(steps * TICK, input);
   if (game.replay) updateReplayBar(game);
   ui.update();
+  session.tools.update();
   playSounds();
   pauseEl.style.display = input.paused && !menu && !net ? 'flex' : 'none';
 
@@ -202,6 +208,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (!session || menu) return;
+  if (e.key === 'F2' || e.key === '`') { e.preventDefault(); session.tools.toggle(); return; }
   if (k === 'm') audio.setSfx(!audio.sfxOn);
   if (k === 'v') audio.setVoice(!audio.voiceOn);
   if (k === 'u') audio.setUnitVoice(!audio.unitVoiceOn);
@@ -325,6 +332,7 @@ function renderMenu() {
         <button data-act="load" class="secondary">Load battle</button>
         <button data-act="restart" class="secondary">Restart battle</button>
         <button data-act="settings" class="secondary">Settings</button>
+        <button data-act="tools" class="secondary">Test tools (F2)</button>
         <button data-act="quit" class="secondary">Quit to main menu</button>
       </div>
       <p class="sub hint">Esc to resume</p>`;
@@ -443,6 +451,7 @@ menuPanel.addEventListener('click', (e) => {
   else if (act === 'yes') menu.then();
   else if (act === 'play') { audio.unlock(); startGame({ mission: menu.mission }); }
   else if (act === 'quit-now') quitToSetup();
+  else if (act === 'tools') { closeMenu(); session?.tools.toggle(true); }
   else if (act === 'host' || act === 'join') goOnline(act);
   else if (act === 'leave-lobby') { lobby?.net.close(); lobby = null; setView('online'); }
   else if (act === 'start-online') lobby?.net.act({ act: 'start' });
@@ -491,6 +500,15 @@ menuPanel.addEventListener('input', (e) => {
 // ---------- setup screen ----------
 registerCustomMaps();
 const setup = { faction: 'allied', map: 'random', difficulty: 'normal', mode: '1v1' };
+// Test mode opens the test tools as soon as a battle starts
+let testMode = false;
+try { testMode = localStorage.getItem('ironfront.testmode') === '1'; } catch { /* storage unavailable */ }
+const testToggle = document.getElementById('test-mode');
+testToggle.checked = testMode;
+testToggle.addEventListener('change', () => {
+  testMode = testToggle.checked;
+  try { localStorage.setItem('ironfront.testmode', testMode ? '1' : '0'); } catch { /* storage unavailable */ }
+});
 try { Object.assign(setup, JSON.parse(localStorage.getItem('ironfront.setup') || '{}')); } catch { /* no saved setup */ }
 if (!MAPS[setup.map]) setup.map = 'random';
 if (!MODES[setup.mode]) setup.mode = '1v1';

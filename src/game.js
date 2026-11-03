@@ -344,7 +344,8 @@ export class Game {
   }
 
   // ---------- building placement ----------
-  canPlace(owner, key, tx, ty) {
+  // Is the ground free for this building (ignoring how far it is from the owner's base)?
+  fits(owner, key, tx, ty) {
     const def = BUILDINGS[key];
     const m = this.map;
     for (let y = ty; y < ty + def.h; y++) {
@@ -358,6 +359,13 @@ export class Game {
       const ux = Math.floor(u.x), uy = Math.floor(u.y);
       if (ux >= tx && ux < tx + def.w && uy >= ty && uy < ty + def.h && u.owner !== owner) return false;
     }
+    return true;
+  }
+
+  canPlace(owner, key, tx, ty) {
+    const def = BUILDINGS[key];
+    if (!this.fits(owner, key, tx, ty)) return false;
+    if (owner.cheats?.anywhere) return true; // test mode
     // Must be within 3 tiles of one of our own buildings
     for (const b of this.buildings) {
       if (b.owner !== owner || b.dead || (b.def.wall && !def.wall) || b.def.garrison) continue;
@@ -549,7 +557,7 @@ export class Game {
   }
 
   damage(target, amount, warhead, attacker) {
-    if (target.dead) return;
+    if (target.dead || target.owner.cheats?.god) return; // test mode: invulnerable
     const mult = (WARHEADS[warhead][target.armor] ?? 1) * RANKS[attacker?.rank || 0].damage * RANKS[target.rank || 0].armor;
     target.hp -= amount * mult;
     target.lastAttacker = attacker;

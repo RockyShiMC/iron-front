@@ -35,6 +35,8 @@
   <div id="messages"></div>
   <div id="sw-timers"></div>
   <div id="net-status" hidden></div>
+  <div id="test-panel" hidden></div>
+  <div id="test-badge" hidden>TEST MODE</div>
   <div id="touch-bar" hidden>
     <button data-key="q" title="Select all combat units">Army</button>
     <button data-key="a" data-mode="attackmove">Attack-move</button>
@@ -135,6 +137,7 @@
         <button data-difficulty="hard"><b>Hard</b><span>Attacks early and often, raids your miners, earns and builds faster</span></button>
       </div>
 
+      <label class="test-toggle" title="Open the test tools when a battle starts: money, instant build, spawning, computer toughness and more"><input type="checkbox" id="test-mode"> Test mode</label>
       <button id="start">Start battle</button>
       <div class="setup-extra">
         <button id="load" class="secondary" hidden>Load saved battle</button>
@@ -164,6 +167,7 @@
         <tr><td>H</td><td>Jump to base</td></tr>
         <tr><td>Arrows / screen edge / middle drag</td><td>Scroll</td></tr>
         <tr><td>Esc</td><td>Menu: pause, save, load, restart, quit</td></tr>
+        <tr><td>F2</td><td>Test tools (offline battles)</td></tr>
         <tr><td>Touch</td><td>Tap: select / order · drag: scroll · hold then drag: box select · two-finger tap: cancel · hold a sidebar item: cancel it</td></tr>
         <tr><td>P</td><td>Pause</td></tr>
         <tr><td>M / V / U</td><td>Toggle sound effects / announcer / unit voices</td></tr>
