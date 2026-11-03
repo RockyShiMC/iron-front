@@ -49,6 +49,8 @@ export function snapshot(game, renderer) {
     camera: renderer ? renderer.toWorld(renderer.viewW / 2, renderer.viewH / 2) : null,
     state: {
       time: game.time,
+      tick: game.tick,
+      rngState: game.rngState,
       explored: enc(game.explored),
       ore: enc(game.map.ore),
       visTimer: game.visTimer,
@@ -115,6 +117,8 @@ export function restore(data) {
   g.units = units.filter((u) => !u.inside);
   g.buildings = buildings;
   g.time = s.time;
+  g.tick = s.tick ?? Math.round(s.time * 60);
+  if (s.rngState !== undefined) g.rngState = s.rngState;
   g.explored = dec(s.explored);
   g.map.ore.set(dec(s.ore));
   g.visTimer = s.visTimer;

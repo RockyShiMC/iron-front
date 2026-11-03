@@ -34,6 +34,14 @@
 
   <div id="messages"></div>
   <div id="sw-timers"></div>
+  <div id="replay-bar" hidden>
+    <span class="label">REPLAY</span>
+    <button data-rp="pause">❚❚</button>
+    <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button><button data-speed="8">8×</button>
+    <span class="time"></span>
+    <button data-rp="exit">Exit</button>
+  </div>
+  <input type="file" id="replay-file" accept=".json,application/json" hidden>
   <div id="paused">PAUSED — press P to resume</div>
 
   <div id="menu"><div class="panel menu"></div></div>
@@ -121,6 +129,7 @@
         <button id="load" class="secondary" hidden>Load saved battle</button>
         <button id="campaign">Campaign</button>
         <button id="open-editor" class="secondary">Map editor</button>
+        <button id="replays" class="secondary">Replays</button>
         <button id="settings" class="secondary">Settings</button>
       </div>
 

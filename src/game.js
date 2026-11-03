@@ -3,7 +3,8 @@ import { GameMap, WATER, BRIDGE } from './map.js';
 import { MAPS } from './maps.js';
 import { missionById } from './missions.js';
 import { Pathfinder } from './pathfinding.js';
-import { Unit, Building } from './entities.js';
+import { Unit, Building, setNextId } from './entities.js';
+import { applyCommand } from './commands.js';
 import { Player, categoryOf } from './player.js';
 import { AI } from './ai.js';
 import { dist, distToEntity, mulberry32 } from './util.js';
@@ -15,6 +16,10 @@ const INSTANT = new Set(['tracer', 'bolt', 'beam', 'flak', 'laser', 'rail']);
 const FORMATION = [];
 for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) FORMATION.push({ x: x * 0.85, y: y * 0.85 });
 FORMATION.sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
+
+// The simulation advances in fixed steps, so every computer (and every replay)
+// computes exactly the same battle
+export const TICK = 1 / 60;
 
 // How many players a map has bases for
 export function mapSupports(mapId, players) {
@@ -33,6 +38,11 @@ export class Game {
     }
     // Kept so a battle can be restarted on the same map, and so saves can rebuild the terrain
     this.seed = seed;
+    setNextId(1); // entity ids must match on every computer
+    this.tick = 0;
+    this.rngState = (seed ^ 0x2545f491) >>> 0; // the battle's own random numbers
+    this.inbox = []; // commands waiting for the next tick
+    this.byId = new Map();
     if (!MODES[mode] || (mode !== '1v1' && !mapSupports(map, MODES[mode].teams.length))) mode = '1v1';
     this.setup = { faction, map, difficulty, mode, ...(m ? { mission: m.id } : {}) };
     const teams = MODES[mode].teams;
@@ -181,6 +191,50 @@ export class Game {
     return a === b || (!a.neutral && !b.neutral && a.team === b.team);
   }
 
+  // Random number in [0, 1) from the battle's seed (mulberry32). Anything that changes
+  // the outcome uses this; purely visual randomness can use Math.random.
+  rand() {
+    let t = (this.rngState = (this.rngState + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  // ---------- commands ----------
+  // Queue a player action. Online it goes to every computer; offline it runs next tick.
+  command(c) {
+    if (this.replay) return; // replays are watched, not played
+    c.p ??= this.human.id;
+    if (this.net) this.net.send(c);
+    else this.inbox.push(c);
+  }
+
+  // One fixed step: apply this tick's commands, then simulate
+  step(commands = this.takeCommands()) {
+    if (commands.length) {
+      this.byId.clear();
+      for (const u of this.units) this.byId.set(u.id, u);
+      for (const b of this.buildings) this.byId.set(b.id, b);
+      for (const c of commands) {
+        applyCommand(this, c);
+        this.recording?.push({ ...c, tick: this.tick });
+      }
+    }
+    this.update(TICK);
+    this.tick++;
+  }
+
+  takeCommands() {
+    if (this.replay) {
+      const out = [], r = this.replay;
+      while (r.i < r.commands.length && r.commands[r.i].tick <= this.tick) out.push(r.commands[r.i++]);
+      return out;
+    }
+    const out = this.inbox;
+    this.inbox = [];
+    return out;
+  }
+
   // ---------- entity management ----------
   addUnit(owner, key, x, y) {
     const u = new Unit(key, owner, x, y);
@@ -260,7 +314,7 @@ export class Game {
     } else if (u.ammo !== Infinity) {
       u.orderRearm(this); // jets park on the airfield until ordered out
     } else {
-      const r = prod.rally || owner.rally || { x: p.x + 0.5 + Math.random(), y: p.y + 1.5 + Math.random() };
+      const r = prod.rally || owner.rally || { x: p.x + 0.5 + this.rand(), y: p.y + 1.5 + this.rand() };
       u.orderMove(this, r.x, r.y);
     }
     return u;
@@ -589,8 +643,8 @@ export class Game {
     b.garrison = [];
     for (const u of occupants) {
       const p = this.map.nearestPassable(b.tx + Math.floor(b.w / 2), b.ty + b.h, b.x, b.y + b.h) || { x: b.tx, y: b.ty + b.h };
-      u.x = p.x + 0.3 + Math.random() * 0.4;
-      u.y = p.y + 0.3 + Math.random() * 0.4;
+      u.x = p.x + 0.3 + this.rand() * 0.4;
+      u.y = p.y + 0.3 + this.rand() * 0.4;
       u.inside = null;
       u.hp = Math.max(1, u.hp * hpFrac);
       u.order = { type: 'idle' };
@@ -777,7 +831,7 @@ export class Game {
   kinetic(s, pw) {
     const attacker = { owner: s.owner, rank: 0, dead: true };
     for (let k = 0; k < pw.count; k++) {
-      const a = Math.random() * Math.PI * 2, r = k === 0 ? 0 : Math.sqrt(Math.random()) * pw.radius;
+      const a = this.rand() * Math.PI * 2, r = k === 0 ? 0 : Math.sqrt(this.rand()) * pw.radius;
       const x = s.x + Math.cos(a) * r, y = s.y + Math.sin(a) * r;
       this.spawnExplosion(x, y, 1.4, true);
       for (const list of [this.units, this.buildings]) {
@@ -853,7 +907,7 @@ export class Game {
         const d = Math.hypot(dx, dy);
         if (d >= min) continue;
         const push = (min - d) * 0.25;
-        const nx = d > 1e-4 ? dx / d : Math.random() - 0.5, ny = d > 1e-4 ? dy / d : Math.random() - 0.5;
+        const nx = d > 1e-4 ? dx / d : this.rand() - 0.5, ny = d > 1e-4 ? dy / d : this.rand() - 0.5;
         // Moving units shove idle ones out of the way more than the reverse
         const wa = a.moving && !b.moving ? 0.2 : 1, wb = b.moving && !a.moving ? 0.2 : 1;
         this.nudge(a, -nx * push * wa, -ny * push * wa);
@@ -905,6 +959,11 @@ export class Game {
 
   updateVisibility() {
     const m = this.map;
+    if (this.replay) {
+      // spectators see everything
+      if (!this.revealedAll) { this.explored.fill(1); this.visStamp++; this.revealedAll = true; }
+      return;
+    }
     let changed = false;
     const reveal = (x, y, r) => {
       for (let ty = Math.floor(y - r); ty <= y + r; ty++) {

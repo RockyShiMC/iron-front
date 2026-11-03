@@ -124,7 +124,7 @@ export class Player {
       const dp = Math.min(rate * dt, 1 - item.progress);
       const cost = def.cost * dp;
       if (this.credits < cost) {
-        if (!this.isAI) g.notify('Insufficient funds', 'warn', 20);
+        if (this === g.human) g.notify('Insufficient funds', 'warn', 20);
         continue;
       }
       this.credits -= cost;
@@ -134,11 +134,11 @@ export class Player {
         item.progress = 1;
         if (cat === 'building') {
           item.ready = true;
-          if (!this.isAI) g.notify('Construction complete');
+          if (this === g.human) g.notify('Construction complete');
         } else {
           g.spawnUnit(this, item.key);
           q.shift();
-          if (!this.isAI) g.notify('Unit ready');
+          if (this === g.human) g.notify('Unit ready');
         }
       }
     }
@@ -159,7 +159,7 @@ export class Player {
       if (p > 0) this.powerOut += p;
       else this.powerUse -= p;
     }
-    if (this.isAI || this.neutral) return;
+    if (this !== g.human) return;
     if (!wasLow && this.lowPower()) g.notify('Low power', 'alert', 0);
     // Announce when a new building unlocks things we couldn't build before
     const unlocked = new Set(FACTIONS[this.faction].tabs.flatMap((t) => t.items).filter((k) => this.prereqsMet(k)));

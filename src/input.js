@@ -122,16 +122,14 @@ export class Input {
 
   // The first segment uses the finished wall; each extra one is paid for on the spot
   placeWalls(tiles) {
-    const g = this.g, p = g.human, key = this.placing.key;
-    if (!g.placeBuilding(p, key, tiles[0].x, tiles[0].y)) { g.notify("Can't build there", 'warn', 1); g.sound('error'); return; }
+    const g = this.g, key = this.placing.key;
+    if (!g.canPlace(g.human, key, tiles[0].x, tiles[0].y)) { g.notify("Can't build there", 'warn', 1); g.sound('error'); return; }
     this.placing = null;
-    for (const t of tiles.slice(1)) {
-      if (p.credits < BUILDINGS[key].cost) { g.notify('Insufficient funds', 'warn', 20); break; }
-      if (!g.canPlace(p, key, t.x, t.y)) continue;
-      p.credits -= BUILDINGS[key].cost;
-      g.addBuilding(p, key, t.x, t.y);
-    }
+    g.command({ type: 'walls', key, tiles: tiles.map((t) => [t.x, t.y]) });
   }
+
+  // Shorthand: the ids of a list of entities
+  ids(list) { return list.map((e) => e.id); }
 
   addMarker(x, y, color) {
     this.markers.push({ x, y, color, life: 0.6 });
@@ -190,7 +188,7 @@ export class Input {
 
     if (this.placing) {
       const { key, tx, ty } = this.placing;
-      if (g.placeBuilding(g.human, key, tx, ty)) this.placing = null;
+      if (g.canPlace(g.human, key, tx, ty)) { g.command({ type: 'place', key, x: tx, y: ty }); this.placing = null; }
       else { g.notify("Can't build there", 'warn', 1); g.sound('error'); }
       return;
     }
@@ -199,12 +197,12 @@ export class Input {
     const human = g.human;
 
     if (this.mode === 'sell') {
-      if (ent && ent.isBuilding && ent.owner === human) g.sell(ent);
+      if (ent && ent.isBuilding && ent.owner === human) g.command({ type: 'sell', t: ent.id });
       return;
     }
     if (this.mode === 'repair') {
       if (ent && ent.isBuilding && ent.owner === human && ent.hp < ent.maxHp) {
-        ent.repairing = !ent.repairing;
+        g.command({ type: 'repairBuilding', t: ent.id });
         g.sound('click');
       } else {
         g.sound('error');
@@ -214,7 +212,8 @@ export class Input {
 
     if (this.mode === 'power') {
       this.mode = null;
-      if (g.usePower(human, this.power, w.x, w.y)) this.addMarker(w.x, w.y, '#ff4040');
+      g.command({ type: 'power', power: this.power, x: w.x, y: w.y });
+      this.addMarker(w.x, w.y, '#ff4040');
       this.power = null;
       return;
     }
@@ -226,7 +225,7 @@ export class Input {
       this.mode = null;
       const target = ent && !units.includes(ent) ? ent : { isGround: true, x: w.x, y: w.y, dead: false, hp: 1, maxHp: 1 };
       const able = units.filter((u) => g.canHit(u.weapon, target));
-      for (const u of able) { u.waypoints = []; u.orderAttack(g, target); }
+      g.command(target.isGround ? { type: 'attack', u: this.ids(able), gx: w.x, gy: w.y } : { type: 'attack', u: this.ids(able), t: target.id });
       this.addMarker(w.x, w.y, '#ff4040');
       if (able.length) { g.sound('attack'); g.voice(this.spokesman(able), 'attack'); }
       return;
@@ -236,7 +235,7 @@ export class Input {
       this.mode = null;
       if (!units.length) return;
       const ally = ent && ent.isUnit && ent.owner === human && !units.includes(ent) ? ent : null;
-      for (const u of units) { u.waypoints = []; u.orderGuard(g, w.x, w.y, ally); }
+      g.command({ type: 'guard', u: this.ids(units), x: w.x, y: w.y, ...(ally ? { t: ally.id } : {}) });
       this.addMarker(ally ? ally.x : w.x, ally ? ally.y : w.y, '#6ab0ff');
       g.sound('move');
       g.voice(this.spokesman(units), 'move');
@@ -248,7 +247,7 @@ export class Input {
       if (!units.length) return;
       if (ent && g.hostile(ent.owner, human)) this.attack(units, ent);
       else {
-        g.groupOrder(units, w.x, w.y, 'attackmove', e.shiftKey);
+        g.command({ type: 'move', mode: 'attackmove', u: this.ids(units), x: w.x, y: w.y, q: e.shiftKey });
         this.addMarker(w.x, w.y, '#ff6060');
         g.sound('attack');
         g.voice(this.spokesman(units), 'attack');
@@ -261,7 +260,7 @@ export class Input {
     if (ent && ent.owner === human) {
       const harvesters = units.filter((u) => u.def.harvester);
       if (ent.key === 'refinery' && harvesters.length && !e.shiftKey) {
-        for (const h of harvesters) h.orderDock(g, ent);
+        g.command({ type: 'dock', u: this.ids(harvesters), t: ent.id });
         this.addMarker(ent.x, ent.y, '#e8c547');
         g.sound('move');
         g.voice(this.spokesman(harvesters), 'move');
@@ -293,9 +292,9 @@ export class Input {
       const tx = Math.floor(w.x), ty = Math.floor(w.y);
       const oreTile = g.map.oreAt(tx, ty) > 0 ? g.map.idx(tx, ty) : -1;
       const harvesters = oreTile >= 0 ? units.filter((u) => u.def.harvester) : [];
-      for (const h of harvesters) h.orderHarvest(g, oreTile);
+      if (harvesters.length) g.command({ type: 'harvest', u: this.ids(harvesters), tile: oreTile });
       const movers = units.filter((u) => !harvesters.includes(u));
-      if (movers.length) g.groupOrder(movers, w.x, w.y, 'move', e.shiftKey);
+      if (movers.length) g.command({ type: 'move', u: this.ids(movers), x: w.x, y: w.y, q: e.shiftKey });
       this.addMarker(w.x, w.y, harvesters.length ? '#e8c547' : '#60ff60');
       g.sound('move');
       g.voice(this.spokesman(units), 'move');
@@ -304,7 +303,7 @@ export class Input {
 
     const sel = this.selection[0];
     if (this.selection.length === 1 && sel.isBuilding && sel.owner === human && sel.def.produces && sel.def.produces !== 'building') {
-      sel.rally = { x: w.x, y: w.y };
+      g.command({ type: 'rally', t: sel.id, x: w.x, y: w.y });
       this.addMarker(w.x, w.y, '#ffffff');
       g.sound('move');
       return;
@@ -329,8 +328,7 @@ export class Input {
       // engineers rebuild a destroyed bridge
       const br = g.map.bridgeOn(w.x, w.y);
       if (br && br.dead && engineers.length) {
-        engineers[0].waypoints = [];
-        engineers[0].orderFixBridge(g, br);
+        g.command({ type: 'fixBridge', u: [engineers[0].id], b: g.map.bridges.indexOf(br) });
         say([engineers[0]], '#e8c547');
         return true;
       }
@@ -341,7 +339,7 @@ export class Input {
       const enemyOrNeutral = ent.owner !== human && ent.def.capturable !== false && !ent.garrison?.length;
       const fixOwn = ent.owner === human && ent.hp < ent.maxHp && !ent.def.wall;
       if (enemyOrNeutral || fixOwn) {
-        for (const u of engineers) { u.waypoints = []; u.orderReach(g, 'capture', ent); }
+        g.command({ type: 'reach', kind: 'capture', u: this.ids(engineers), t: ent.id });
         say(engineers, '#e8c547');
       }
     }
@@ -349,17 +347,17 @@ export class Input {
     if (occupants.length) {
       const room = ent.def.garrison - (ent.garrison?.length || 0);
       const going = occupants.slice(0, room);
-      for (const u of going) { u.waypoints = []; u.orderReach(g, 'enter', ent); }
+      g.command({ type: 'reach', kind: 'enter', u: this.ids(going), t: ent.id });
       say(going, '#6ab0ff');
     }
     const commandos = units.filter((u) => u.def.demolish);
     if (commandos.length && g.hostile(ent.owner, human) && !ent.def.wall) {
-      for (const u of commandos) { u.waypoints = []; u.orderReach(g, 'demolish', ent); }
+      g.command({ type: 'reach', kind: 'demolish', u: this.ids(commandos), t: ent.id });
       say(commandos, '#ff4040', 'attack');
     }
     if (ent.owner === human && ent.def.repairs) {
       const fix = units.filter((u) => u.hp < u.maxHp && g.repairBayFor(u) && (ent.def.repairs === 'naval') === !!u.isNaval);
-      for (const u of fix) { u.waypoints = []; u.orderRepair(g, ent); }
+      if (fix.length) g.command({ type: 'repair', u: this.ids(fix), t: ent.id });
       if (fix.length) say(fix, '#60ff60');
     }
     if (!used.length) return false;
@@ -371,7 +369,7 @@ export class Input {
 
   attack(units, target) {
     const able = units.filter((u) => this.g.canHit(u.weapon, target));
-    for (const u of able) { u.waypoints = []; u.orderAttack(this.g, target); }
+    this.g.command({ type: 'attack', u: this.ids(able), t: target.id });
     this.addMarker(target.x, target.y, '#ff4040');
     this.g.sound('attack');
     this.g.voice(this.spokesman(able), 'attack');
@@ -404,21 +402,20 @@ export class Input {
 
     switch (k) {
       case 'escape': this.placing = null; this.mode = null; this.selection = []; break;
-      case 's': for (const u of this.ownUnits()) { u.waypoints = []; u.orderStop(); } break;
+      case 's': if (this.ownUnits().length) g.command({ type: 'stop', u: this.ids(this.ownUnits()) }); break;
       case 'a': if (this.ownUnits().length) this.mode = 'attackmove'; break;
       case 'f': if (this.ownUnits().some((u) => u.weapon)) this.mode = 'forcefire'; break;
       case 'g': if (this.ownUnits().length) this.mode = 'guard'; break;
       case 'r': {
         // send damaged vehicles / ships to be fixed
-        const fix = this.ownUnits().filter((u) => u.hp < u.maxHp);
-        let sent = 0;
-        for (const u of fix) { u.waypoints = []; if (u.orderRepair(g)) sent++; }
-        if (sent) { g.sound('move'); g.voice(this.spokesman(fix), 'move'); } else if (fix.length) g.notify('No repair facility', 'warn', 2);
+        const fix = this.ownUnits().filter((u) => u.hp < u.maxHp && g.repairBayFor(u));
+        if (fix.length) { g.command({ type: 'repair', u: this.ids(fix) }); g.sound('move'); g.voice(this.spokesman(fix), 'move'); }
+        else if (this.ownUnits().some((u) => u.hp < u.maxHp)) g.notify('No repair facility', 'warn', 2);
         break;
       }
       case 'd': {
         // evacuate selected garrisoned buildings
-        for (const b of this.selection) if (b.isBuilding && b.owner === g.human && b.garrison?.length) g.evacuate(b);
+        for (const b of this.selection) if (b.isBuilding && b.owner === g.human && b.garrison?.length) g.command({ type: 'evacuate', t: b.id });
         break;
       }
       case 'q': this.selection = g.units.filter((u) => u.owner === g.human && u.weapon && !u.def.harvester); break;

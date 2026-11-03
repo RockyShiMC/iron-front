@@ -17,7 +17,7 @@ class Entity {
     this.maxHp = def.hp;
     this.dead = false;
     this.cooldown = 0;
-    this.scanTimer = Math.random() * 0.4;
+    this.scanTimer = ((this.id * 0.137) % 1) * 0.4; // staggered, but the same on every computer
     this.target = null;
     this.lastAttacker = null;
     this.lastAttacked = -99;

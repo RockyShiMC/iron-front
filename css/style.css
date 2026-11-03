@@ -411,3 +411,15 @@ body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border
 #ed-note.bad { color: var(--warn); }
 #editor-panel .ed-close { flex: none; margin-top: auto; }
 .panel .maps button.custom { border-style: dashed; }
+
+/* Replay controls */
+#replay-bar {
+  position: absolute; bottom: 14px; left: calc((100% - var(--sidebar-w)) / 2); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; padding: 6px 10px; z-index: 5;
+  background: rgba(10, 13, 15, 0.9); border: 1px solid var(--edge); font: 13px Consolas, monospace;
+}
+#replay-bar[hidden] { display: none; }
+#replay-bar .label { color: var(--accent); font-weight: bold; margin-right: 6px; }
+#replay-bar .time { min-width: 110px; text-align: center; color: var(--text); }
+#replay-bar button { background: var(--panel-2); color: var(--text); border: 1px solid var(--edge); padding: 3px 8px; cursor: pointer; font: inherit; }
+#replay-bar button.on { border-color: var(--accent); color: #fff; background: #34434c; }

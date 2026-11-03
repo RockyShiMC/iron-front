@@ -42,7 +42,7 @@ export class UI {
     // mousedown, because the panel is redrawn whenever HP changes and that can swallow a click
     this.el.info.addEventListener('mousedown', (e) => {
       if (e.target.dataset.act !== 'evacuate') return;
-      for (const b of this.input.selection) if (b.isBuilding && b.garrison?.length) this.g.evacuate(b);
+      for (const b of this.input.selection) if (b.isBuilding && b.garrison?.length) this.g.command({ type: 'evacuate', t: b.id });
     }, { signal: this.signal });
     this.el.powers.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -114,12 +114,15 @@ export class UI {
       g.notify('Unable to comply, building in progress', 'warn', 1);
       return;
     }
-    if (p.enqueue(key, g)) g.notify(cat === 'building' ? 'Building' : 'Training', 'info', 0.5);
+    if (cat !== 'building' && q.length >= 5) return;
+    g.command({ type: 'build', key });
+    g.notify(cat === 'building' ? 'Building' : 'Training', 'info', 0.5);
   }
 
   itemCancel(key) {
     const g = this.g;
-    if (g.human.cancel(key)) {
+    if (g.human.queuedCount(key)) {
+      g.command({ type: 'cancel', key });
       if (this.input.placing && this.input.placing.key === key) this.input.placing = null;
       g.notify('Canceled', 'info', 0.5);
     }

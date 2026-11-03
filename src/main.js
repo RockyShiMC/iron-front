@@ -1,5 +1,5 @@
 import { SIDEBAR_W, FACTIONS, MODES } from './config.js';
-import { Game, mapSupports } from './game.js';
+import { Game, mapSupports, TICK } from './game.js';
 import { Renderer } from './renderer.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
@@ -10,6 +10,7 @@ import { settings, saveSettings } from './settings.js';
 import { MISSIONS, missionById, missionUnlocked, markMissionDone, campaignProgress } from './missions.js';
 import { registerCustomMaps } from './customMaps.js';
 import { Editor } from './editor.js';
+import { listReplays, storeReplay, deleteReplay, importReplay, exportReplay } from './replays.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -19,19 +20,31 @@ const statusPanel = document.getElementById('status-panel');
 const pauseEl = document.getElementById('paused');
 const menuEl = document.getElementById('menu');
 const menuPanel = menuEl.querySelector('.panel');
+const replayBar = document.getElementById('replay-bar');
 
 // The battle in progress: { game, renderer, input, ui, ac }
 let session = null;
 let running = false;
 let menu = null; // the open menu view, or null
 let last = performance.now();
+let acc = 0; // real time not yet simulated, in seconds
+let replaySpeed = 1;
 
-function startGame(setup, loaded = null) {
+// replay: watch a recorded battle instead of playing a new one
+function startGame(setup, loaded = null, replay = null) {
   audio.unlock();
   endGame();
   const ac = new AbortController();
   const game = loaded ? loaded.game : new Game(setup);
   game.soundEnabled = true;
+  if (replay) {
+    game.replay = { commands: replay.commands, i: 0, ticks: replay.ticks, data: replay };
+    game.human = game.players[replay.player] || game.human;
+    replaySpeed = 1;
+  } else if (!loaded) {
+    game.recording = []; // loaded games aren't recorded: a replay has to start from the beginning
+  }
+  acc = 0;
   const renderer = new Renderer(canvas, game);
   const input = new Input(canvas, game, renderer, ac.signal);
   const ui = new UI(game, input, renderer, audio, ac.signal);
@@ -48,7 +61,9 @@ function startGame(setup, loaded = null) {
   overlay.style.display = 'none';
   running = !game.result;
   input.enabled = running;
-  if (loaded) game.notify('Battle loaded', 'info', 0);
+  replayBar.hidden = !replay;
+  if (replay) game.notify('Watching replay', 'info', 0);
+  else if (loaded) game.notify('Battle loaded', 'info', 0);
   else game.notify(game.setup.faction === 'soviet' ? 'Welcome, Comrade General' : 'Battle control online');
 
   // Expose for debugging in the console
@@ -59,6 +74,8 @@ function startGame(setup, loaded = null) {
 // Tear the current battle down so another can start without reloading the page
 function endGame() {
   if (!session) return;
+  storeReplay(session.game);
+  replayBar.hidden = true;
   session.ac.abort();
   session.ui.destroy();
   session = null;
@@ -78,20 +95,67 @@ function frame(now) {
   if (!session) return;
   const { game, renderer, input, ui } = session;
   const paused = input.paused || !!menu;
-  // Faster game speeds run extra simulation steps rather than one big one
-  const step = dt * settings.speed;
-  if (running && !paused) for (let left = step; left > 1e-6; left -= 0.05) game.update(Math.min(0.05, left));
+  // Fixed simulation steps: faster speeds (and fast-forwarded replays) just run more of them
+  let steps = 0;
+  if (running && !paused) {
+    const speed = game.replay ? replaySpeed : settings.speed;
+    const max = Math.ceil(speed * 4) + 2;
+    acc += dt * speed;
+    while (acc >= TICK && steps < max && !game.result) {
+      if (game.replay && game.tick >= game.replay.ticks) break;
+      game.step();
+      acc -= TICK;
+      steps++;
+    }
+    if (steps >= max) acc = 0; // can't keep up: slow down rather than spiral
+  }
   input.update(dt);
-  renderer.draw(paused ? 0 : step, input);
+  renderer.draw(steps * TICK, input);
+  if (game.replay) updateReplayBar(game);
   ui.update();
   playSounds();
   pauseEl.style.display = input.paused && !menu ? 'flex' : 'none';
 
-  if (game.result && running) {
+  const replayOver = game.replay && game.tick >= game.replay.ticks;
+  if ((game.result || replayOver) && running) {
     running = false;
     input.enabled = false;
-    showResult(game.result);
+    if (game.replay) showReplayEnd(); else showResult(game.result);
   }
+}
+
+// ---------- replays ----------
+const fmt = (ticks) => clock(ticks * TICK);
+function updateReplayBar(game) {
+  const t = `${fmt(game.tick)} / ${fmt(game.replay.ticks)}`;
+  const el = replayBar.querySelector('.time');
+  if (el.textContent !== t) el.textContent = t;
+  for (const b of replayBar.querySelectorAll('[data-speed]')) b.classList.toggle('on', +b.dataset.speed === replaySpeed);
+  replayBar.querySelector('[data-rp=pause]').textContent = session.input.paused ? '▶' : '❚❚';
+}
+
+replayBar.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || !session?.game.replay) return;
+  if (b.dataset.speed) replaySpeed = +b.dataset.speed;
+  if (b.dataset.rp === 'pause') session.input.paused = !session.input.paused;
+  if (b.dataset.rp === 'exit') quitToSetup();
+});
+
+function showReplayEnd() {
+  const r = session.game.replay.data;
+  statusPanel.innerHTML = `
+    <h1>Replay finished</h1>
+    <p>${battleName(r.setup)} · ${fmt(r.ticks)}</p>
+    <div class="menu-buttons">
+      <button data-act="again">Watch again</button>
+      <button data-act="replays" class="secondary">Replays</button>
+      <button data-act="quit" class="secondary">Main menu</button>
+    </div>`;
+  statusPanel.querySelector('[data-act=again]').onclick = () => startGame(r.setup, null, r);
+  statusPanel.querySelector('[data-act=replays]').onclick = () => openMenu('replays');
+  statusPanel.querySelector('[data-act=quit]').onclick = quitToSetup;
+  showOverlay(statusPanel);
 }
 requestAnimationFrame(frame);
 
@@ -211,7 +275,15 @@ function setView(view, extra = {}) {
 function renderMenu() {
   const v = menu.view;
   let html = '';
-  if (v === 'main') {
+  if (v === 'main' && session.game.replay) {
+    html = `
+      <h1>Replay paused</h1>
+      <p class="sub">${battleName(session.game.replay.data.setup)}</p>
+      <div class="menu-buttons">
+        <button data-act="resume">Resume</button>
+        <button data-act="quit-now" class="secondary">Exit replay</button>
+      </div>`;
+  } else if (v === 'main') {
     const g = session.game;
     html = `
       <h1>Paused</h1>
@@ -258,6 +330,21 @@ function renderMenu() {
         <label>Health bars <select data-set="healthBars">${opt('healthBars', [['selected', 'Selected only'], ['damaged', 'Damaged units'], ['all', 'Always']])}</select></label>
       </div>
       <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
+  } else if (v === 'replays') {
+    const list = listReplays();
+    const rows = list.map((r) => `<div class="slot"><div class="meta"><b>${battleName(r.setup)}</b>
+      <span>${new Date(r.date).toLocaleString()} · ${fmt(r.ticks)}${r.result ? ` · ${r.result === 'win' ? 'won' : 'lost'}` : ''}</span></div>
+      <button data-watch="${r.id}">Watch</button><button data-export="${r.id}" class="secondary" title="Save as a file">⇩</button>
+      <button data-delreplay="${r.id}" class="secondary" title="Delete">${menu.confirmDel === r.id ? 'Sure?' : '✕'}</button></div>`);
+    html = `
+      <h1>Replays</h1>
+      <p class="sub">Your last ${list.length ? list.length : ''} battles are kept automatically. Replays play back at up to 8× speed with the whole map revealed.</p>
+      <div class="slots">${rows.join('') || '<p class="sub">No replays yet. Play a battle for at least 15 seconds.</p>'}</div>
+      <p class="note">${menu.note}</p>
+      <div class="menu-buttons row">
+        <button data-act="import-replay" class="secondary">Import file</button>
+        <button data-act="back" class="secondary">Back</button>
+      </div>`;
   } else if (v === 'campaign') {
     const done = campaignProgress().done;
     const rows = MISSIONS.map((m, i) => {
@@ -306,6 +393,15 @@ menuPanel.addEventListener('click', (e) => {
   else if (act === 'quit') setView('confirm', { title: 'Quit battle?', yes: 'Quit', then: quitToSetup });
   else if (act === 'yes') menu.then();
   else if (act === 'play') { audio.unlock(); startGame({ mission: menu.mission }); }
+  else if (act === 'quit-now') quitToSetup();
+  else if (act === 'import-replay') document.getElementById('replay-file').click();
+  else if (b.dataset.watch) { const r = listReplays().find((x) => x.id === b.dataset.watch); if (r) { audio.unlock(); startGame(r.setup, null, r); } }
+  else if (b.dataset.export) { const r = listReplays().find((x) => x.id === b.dataset.export); if (r) exportReplay(r); }
+  else if (b.dataset.delreplay) {
+    const id = b.dataset.delreplay;
+    if (menu.confirmDel === id) { deleteReplay(id); setView('replays', { note: 'Replay deleted.' }); }
+    else setView('replays', { confirmDel: id });
+  }
   else if (b.dataset.mission) setView('briefing', { mission: b.dataset.mission });
   else if (b.dataset.save) {
     try {
@@ -391,6 +487,14 @@ refreshSetup();
 loadBtn.addEventListener('click', () => { audio.unlock(); openMenu('load'); });
 document.getElementById('settings').addEventListener('click', () => openMenu('settings'));
 document.getElementById('campaign').addEventListener('click', () => { audio.unlock(); openMenu('campaign'); });
+document.getElementById('replays').addEventListener('click', () => { audio.unlock(); openMenu('replays'); });
+document.getElementById('replay-file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try { importReplay(await f.text()); setView('replays', { note: 'Replay imported.' }); }
+  catch (err) { setView('replays', { note: `Couldn't import: ${err.message}.` }); }
+});
 
 // ---------- map editor ----------
 const editor = new Editor({

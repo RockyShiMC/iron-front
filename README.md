@@ -37,6 +37,12 @@ Four short missions, each unlocking the next (progress is kept in the browser). 
 | 3 | Black Gold | Syndicate | Capture both oil derricks with engineers, then destroy the Soviet Construction Yard |
 | 4 | Ghost Protocol | Syndicate | Alone with the cloaked Specter: destroy the Missile Silo before it launches at 6:00 |
 
+## Replays
+
+Every battle you start (not loaded from a save) is recorded, and the last 10 are kept: open **Replays** on the start screen. Watch at 1×–8× with the whole map revealed, export a replay as a file, or import one. A replay is only the battle's seed plus your commands, so it stays small however long the battle ran.
+
+This works because the simulation is deterministic: it advances in fixed 1/60 s ticks, all its randomness comes from the battle's seed, and every player action is a command applied at the start of a tick. The same groundwork lets online play run the same battle on every computer.
+
 ## Map editor
 
 Open **Map editor** on the start screen. The map is shown as an isometric diamond, laid out like the game with north at the top.
@@ -154,6 +160,8 @@ It also reads your army: it builds whatever counters what you field (anti-tank i
 | `src/missions.js` | Campaign missions, objectives and progress |
 | `src/editor.js` | Map editor |
 | `src/customMaps.js` | Storing, encoding and registering custom maps |
+| `src/commands.js` | Player actions as commands (the only way players change the battle) |
+| `src/replays.js` | Recording, storing, exporting and importing replays |
 | `src/maps.js` | Map catalog: geographic outlines, mountains, deserts, starts, ore |
 | `src/map.js` | Terrain generation (random and geographic), ore, land/sea/air passability |
 | `src/pathfinding.js` | A* on the tile grid plus line-of-sight smoothing |

@@ -97,7 +97,7 @@ export class AI {
     const opts = items.filter((k) => p.canBuild(k, g) && !UNITS[k].harvester && !UNITS[k].engineer && !UNITS[k].hero && UNITS[k].weapon);
     if (!opts.length) return null;
     const weights = opts.map((k) => (this.effectiveness(k) + 0.1) ** 2);
-    let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+    let r = this.g.rand() * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < opts.length; i++) if ((r -= weights[i]) <= 0) return opts[i];
     return opts[opts.length - 1];
   }
@@ -110,7 +110,7 @@ export class AI {
       this.attacking.delete(u);
       if (!u.orderRepair(g)) {
         const home = this.p.rally || this.conyard();
-        if (home) u.orderMove(g, home.x + Math.random() * 2 - 1, home.y + Math.random() * 2 - 1);
+        if (home) u.orderMove(g, home.x + this.g.rand() * 2 - 1, home.y + this.g.rand() * 2 - 1);
       }
     }
   }
@@ -203,7 +203,7 @@ export class AI {
       }
     }
     if (p.powerOut - p.powerUse < 40) return power;
-    const def = keyForRole(p.faction, Math.random() < 0.5 ? 'advDefense' : 'defense');
+    const def = keyForRole(p.faction, this.g.rand() < 0.5 ? 'advDefense' : 'defense');
     if (p.credits > 2500 && (p.counts.defense || 0) + (p.counts.advDefense || 0) < 10 && p.canBuild(def, g)) return def;
     return null;
   }
@@ -290,7 +290,7 @@ export class AI {
       if (u.order.type !== 'idle' || g.time < (u.aiRetarget || 0)) continue;
       u.aiRetarget = g.time + 8; // don't re-path every second if the target is unreachable
       const t = this.pickTarget(u);
-      if (t) u.orderAttackMove(g, t.x + Math.random() - 0.5, t.y + Math.random() - 0.5);
+      if (t) u.orderAttackMove(g, t.x + this.g.rand() - 0.5, t.y + this.g.rand() - 0.5);
     }
   }
 
@@ -323,7 +323,7 @@ export class AI {
     if (g.time < this.d.firstAttack * 0.7) return;
     for (const u of g.units) {
       if (u.owner !== this.p || u.ammo === Infinity || !u.landed || u.ammo < u.def.ammo || u.order.type !== 'idle') continue;
-      const t = Math.random() < 0.5
+      const t = this.g.rand() < 0.5
         ? this.nearestEnemy(u, (e) => e.isUnit && !e.isAir && (e.def.harvester || e.def.category === 'vehicle'))
         : this.nearestEnemy(u, (e) => e.isBuilding);
       if (t) u.orderAttack(g, t);
@@ -387,8 +387,8 @@ export class AI {
       if (!w) return null;
       ax = w.x; ay = w.y;
     } else if (def.weapon && p.rally) {
-      ax = p.rally.x + (Math.random() - 0.5) * 6;
-      ay = p.rally.y + (Math.random() - 0.5) * 6;
+      ax = p.rally.x + (this.g.rand() - 0.5) * 6;
+      ay = p.rally.y + (this.g.rand() - 0.5) * 6;
     }
     let best = null, bd = Infinity;
     for (let ty = Math.floor(ay - 14); ty <= ay + 14; ty++) {
