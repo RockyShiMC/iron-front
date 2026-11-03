@@ -37,6 +37,17 @@ Four short missions, each unlocking the next (progress is kept in the browser). 
 | 3 | Black Gold | Syndicate | Capture both oil derricks with engineers, then destroy the Soviet Construction Yard |
 | 4 | Ghost Protocol | Syndicate | Alone with the cloaked Specter: destroy the Missile Silo before it launches at 6:00 |
 
+## Online play
+
+`npm start` also runs the online relay. Press **Online** on the start screen:
+
+1. One player picks a name and presses **Host a game**, and gets a 4-letter code
+2. The others open the game from the **same server** and press **Join** with that code. On your home network, use the host computer's address that the server prints when it starts (for example `http://192.168.1.20:8080`)
+3. The host picks the map, mode (1 vs 1 up to free for all) and computer difficulty. Everyone picks a side; any seat can be taken with **Sit here**; empty seats are played by the computer
+4. The host presses **Start battle**
+
+Battles are lockstep: only orders travel over the network (about 0.3 s from click to action), and every browser runs the identical battle. They compare fingerprints of their battles every few seconds and warn if they ever differ. If someone leaves, the battle carries on without them. Online battles can't be paused or saved; minimizing the game makes the other players wait until you're back. To play over the internet rather than a home network, the server has to be reachable by everyone (port forwarding or hosting it somewhere).
+
 ## Replays
 
 Every battle you start (not loaded from a save) is recorded, and the last 10 are kept: open **Replays** on the start screen. Watch at 1×–8× with the whole map revealed, export a replay as a file, or import one. A replay is only the battle's seed plus your commands, so it stays small however long the battle ran.
@@ -162,6 +173,7 @@ It also reads your army: it builds whatever counters what you field (anti-tank i
 | `src/customMaps.js` | Storing, encoding and registering custom maps |
 | `src/commands.js` | Player actions as commands (the only way players change the battle) |
 | `src/replays.js` | Recording, storing, exporting and importing replays |
+| `src/net.js` | Online lockstep: turns, waiting, desync checks |
 | `src/maps.js` | Map catalog: geographic outlines, mountains, deserts, starts, ore |
 | `src/map.js` | Terrain generation (random and geographic), ore, land/sea/air passability |
 | `src/pathfinding.js` | A* on the tile grid plus line-of-sight smoothing |

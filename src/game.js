@@ -3,7 +3,7 @@ import { GameMap, WATER, BRIDGE } from './map.js';
 import { MAPS } from './maps.js';
 import { missionById } from './missions.js';
 import { Pathfinder } from './pathfinding.js';
-import { Unit, Building, setNextId } from './entities.js';
+import { Unit, Building, setNextId, peekNextId } from './entities.js';
 import { applyCommand } from './commands.js';
 import { Player, categoryOf } from './player.js';
 import { AI } from './ai.js';
@@ -29,7 +29,8 @@ export function mapSupports(mapId, players) {
 }
 
 export class Game {
-  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal', mode = '1v1', mission = null } = {}) {
+  // players: online games list each seat ({ faction, ai, name }); local: which seat is you
+  constructor({ seed = (Math.random() * 1e9) | 0, faction = 'allied', map = 'random', difficulty = 'normal', mode = '1v1', mission = null, players = null, local = 0 } = {}) {
     // A campaign mission fixes the side, map and opponent
     const m = mission ? missionById(mission) : null;
     if (m) {
@@ -44,24 +45,31 @@ export class Game {
     this.inbox = []; // commands waiting for the next tick
     this.byId = new Map();
     if (!MODES[mode] || (mode !== '1v1' && !mapSupports(map, MODES[mode].teams.length))) mode = '1v1';
-    this.setup = { faction, map, difficulty, mode, ...(m ? { mission: m.id } : {}) };
+    if (players) faction = players[local]?.faction || faction;
+    this.setup = { faction, map, difficulty, mode, ...(m ? { mission: m.id } : {}), ...(players ? { players } : {}) };
     const teams = MODES[mode].teams;
     this.map = new GameMap(map, seed, teams.length);
     this.pathfinder = new Pathfinder(this.map);
     // You, then the computer players (rival sides in turn), then the civilians
     const colors = PLAYER_COLORS.filter((c) => c.color !== FACTIONS[faction].color);
     this.players = teams.map((team, i) => {
-      const p = new Player(i, i === 0 ? faction : m?.enemies?.[i - 1] ?? RIVALS[faction][(i - 1) % 3], i > 0);
+      const seat = players?.[i];
+      const p = seat ? new Player(i, seat.faction, seat.ai)
+        : new Player(i, i === 0 ? faction : m?.enemies?.[i - 1] ?? RIVALS[faction][(i - 1) % 3], i > 0);
       p.team = team;
       p.seat = MODES[mode].seats?.[i] ?? i;
-      if (i > 0) {
+      if (seat) {
+        // online: every seat gets its own color, people show their names
+        p.color = PLAYER_COLORS[i].color;
+        p.name = seat.name || `${PLAYER_COLORS[i].name} ${p.name}`;
+      } else if (i > 0) {
         p.color = colors[i - 1].color;
         p.name = teams.length > 2 ? `${colors[i - 1].name} ${p.name}` : p.name;
       }
       return p;
     });
     this.players.push(Player.neutral(teams.length));
-    this.human = this.players[0];
+    this.human = this.players[players ? local : 0];
     this.neutral = this.players[teams.length];
     this.difficulty = DIFFICULTY[difficulty] || DIFFICULTY.normal;
     if (m && typeof m.ai === 'object') this.difficulty = { ...this.difficulty, ...m.ai };
@@ -111,6 +119,7 @@ export class Game {
       for (const p of this.players) p.recount(this);
     }
     this.updateVisibility();
+    this.nextId = peekNextId();
   }
 
   // Oil derricks and a few civilian buildings in the contested middle of the map
@@ -211,6 +220,7 @@ export class Game {
 
   // One fixed step: apply this tick's commands, then simulate
   step(commands = this.takeCommands()) {
+    setNextId(this.nextId); // each battle numbers its own entities, even with two in one page
     if (commands.length) {
       this.byId.clear();
       for (const u of this.units) this.byId.set(u.id, u);
@@ -222,9 +232,11 @@ export class Game {
     }
     this.update(TICK);
     this.tick++;
+    this.nextId = peekNextId();
   }
 
   takeCommands() {
+    if (this.net) return this.net.commandsAt(this.tick);
     if (this.replay) {
       const out = [], r = this.replay;
       while (r.i < r.commands.length && r.commands[r.i].tick <= this.tick) out.push(r.commands[r.i++]);
@@ -233,6 +245,17 @@ export class Game {
     const out = this.inbox;
     this.inbox = [];
     return out;
+  }
+
+  // A fingerprint of the battle, compared between players online to catch a desync
+  hash() {
+    let h = 0;
+    const add = (v) => { h = (Math.imul(h ^ Math.round(v * 1000), 2654435761) + 1) | 0; };
+    for (const u of this.units) { add(u.id); add(u.x); add(u.y); add(u.hp); }
+    for (const b of this.buildings) { add(b.id); add(b.hp); }
+    for (const p of this.players) add(p.credits);
+    add(this.rngState);
+    return h >>> 0;
   }
 
   // ---------- entity management ----------

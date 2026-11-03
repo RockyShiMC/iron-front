@@ -11,6 +11,7 @@ import { MISSIONS, missionById, missionUnlocked, markMissionDone, campaignProgre
 import { registerCustomMaps } from './customMaps.js';
 import { Editor } from './editor.js';
 import { listReplays, storeReplay, deleteReplay, importReplay, exportReplay } from './replays.js';
+import { Net } from './net.js';
 
 const canvas = document.getElementById('game');
 const audio = new AudioSystem();
@@ -31,12 +32,18 @@ let acc = 0; // real time not yet simulated, in seconds
 let replaySpeed = 1;
 
 // replay: watch a recorded battle instead of playing a new one
-function startGame(setup, loaded = null, replay = null) {
+// online: { net, you } for a battle with other people
+function startGame(setup, loaded = null, replay = null, online = null) {
   audio.unlock();
   endGame();
   const ac = new AbortController();
-  const game = loaded ? loaded.game : new Game(setup);
+  const game = loaded ? loaded.game : new Game({ ...setup, local: online?.you ?? 0 });
   game.soundEnabled = true;
+  if (online) {
+    game.net = online.net;
+    const humans = new Set(setup.players.map((pl, i) => (pl.ai ? -1 : i)).filter((i) => i >= 0));
+    online.net.begin(game, online.you, humans);
+  }
   if (replay) {
     game.replay = { commands: replay.commands, i: 0, ticks: replay.ticks, data: replay };
     game.human = game.players[replay.player] || game.human;
@@ -75,6 +82,7 @@ function startGame(setup, loaded = null, replay = null) {
 function endGame() {
   if (!session) return;
   storeReplay(session.game);
+  if (session.game.net) { session.game.net.close(); lobby = null; }
   replayBar.hidden = true;
   session.ac.abort();
   session.ui.destroy();
@@ -94,27 +102,31 @@ function frame(now) {
   last = now;
   if (!session) return;
   const { game, renderer, input, ui } = session;
-  const paused = input.paused || !!menu;
+  // online the battle never pauses, and keeps running (and sending turns) after you're done
+  const net = game.net;
+  const paused = !net && (input.paused || !!menu);
   // Fixed simulation steps: faster speeds (and fast-forwarded replays) just run more of them
   let steps = 0;
-  if (running && !paused) {
-    const speed = game.replay ? replaySpeed : settings.speed;
+  if ((running || net) && !paused) {
+    const speed = game.replay ? replaySpeed : net ? 1 : settings.speed;
     const max = Math.ceil(speed * 4) + 2;
     acc += dt * speed;
-    while (acc >= TICK && steps < max && !game.result) {
+    while (acc >= TICK && steps < max && (net || !game.result)) {
       if (game.replay && game.tick >= game.replay.ticks) break;
+      if (net && !net.ready(game.tick)) { acc = Math.min(acc, TICK * 2); break; } // waiting for someone's turn
       game.step();
       acc -= TICK;
       steps++;
     }
     if (steps >= max) acc = 0; // can't keep up: slow down rather than spiral
   }
+  if (net) updateNetStatus(game, steps);
   input.update(dt);
   renderer.draw(steps * TICK, input);
   if (game.replay) updateReplayBar(game);
   ui.update();
   playSounds();
-  pauseEl.style.display = input.paused && !menu ? 'flex' : 'none';
+  pauseEl.style.display = input.paused && !menu && !net ? 'flex' : 'none';
 
   const replayOver = game.replay && game.tick >= game.replay.ticks;
   if ((game.result || replayOver) && running) {
@@ -203,6 +215,16 @@ function showResult(result) {
   const next = m && result === 'win' ? MISSIONS[MISSIONS.indexOf(m) + 1] : null;
   const text = m ? (result === 'win' ? `${m.title} complete.` : session.game.failReason || 'The mission has failed.')
     : result === 'win' ? 'The enemy base has been destroyed.' : 'Your forces have been wiped out.';
+  if (session.game.net) {
+    // online: the others may still be fighting, so the only way on is out
+    statusPanel.innerHTML = `
+      <h1>${result === 'win' ? 'Victory' : 'Defeat'}</h1>
+      <p>${result === 'win' ? 'Your side has won the battle.' : 'Your forces have been wiped out.'}</p>
+      <div class="menu-buttons"><button data-act="quit">Leave battle</button></div>`;
+    statusPanel.querySelector('[data-act=quit]').onclick = quitToSetup;
+    showOverlay(statusPanel);
+    return;
+  }
   statusPanel.innerHTML = `
     <h1>${result === 'win' ? 'Mission Accomplished' : 'Mission Failed'}</h1>
     <p>${text}</p>
@@ -283,6 +305,15 @@ function renderMenu() {
         <button data-act="resume">Resume</button>
         <button data-act="quit-now" class="secondary">Exit replay</button>
       </div>`;
+  } else if (v === 'main' && session.game.net) {
+    html = `
+      <h1>Online battle</h1>
+      <p class="sub">Room ${session.game.net.code} · the battle keeps running while this menu is open</p>
+      <div class="menu-buttons">
+        <button data-act="resume">Resume</button>
+        <button data-act="settings" class="secondary">Settings</button>
+        <button data-act="quit" class="secondary">Leave battle</button>
+      </div>`;
   } else if (v === 'main') {
     const g = session.game;
     html = `
@@ -330,6 +361,23 @@ function renderMenu() {
         <label>Health bars <select data-set="healthBars">${opt('healthBars', [['selected', 'Selected only'], ['damaged', 'Damaged units'], ['all', 'Always']])}</select></label>
       </div>
       <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
+  } else if (v === 'online') {
+    html = `
+      <h1>Play online</h1>
+      <p class="sub">Everyone opens this game from the same server. On your network, others use your computer's address
+        (shown in the terminal when the server starts) with port ${location.port || 80}.</p>
+      <div class="settings">
+        <label>Your name <input type="text" id="net-name" maxlength="20" value="${settings.netName || ''}" placeholder="Commander"></label>
+        <label>Game code <input type="text" id="net-code" maxlength="4" placeholder="ABCD" style="text-transform:uppercase"></label>
+      </div>
+      <p class="note">${menu.note}</p>
+      <div class="menu-buttons row">
+        <button data-act="host">Host a game</button>
+        <button data-act="join" class="secondary">Join</button>
+        <button data-act="back" class="secondary">Back</button>
+      </div>`;
+  } else if (v === 'lobby') {
+    html = lobbyHtml();
   } else if (v === 'replays') {
     const list = listReplays();
     const rows = list.map((r) => `<div class="slot"><div class="meta"><b>${battleName(r.setup)}</b>
@@ -394,6 +442,10 @@ menuPanel.addEventListener('click', (e) => {
   else if (act === 'yes') menu.then();
   else if (act === 'play') { audio.unlock(); startGame({ mission: menu.mission }); }
   else if (act === 'quit-now') quitToSetup();
+  else if (act === 'host' || act === 'join') goOnline(act);
+  else if (act === 'leave-lobby') { lobby?.net.close(); lobby = null; setView('online'); }
+  else if (act === 'start-online') lobby?.net.act({ act: 'start' });
+  else if (b.dataset.sit !== undefined) lobby?.net.act({ act: 'sit', slot: +b.dataset.sit });
   else if (act === 'import-replay') document.getElementById('replay-file').click();
   else if (b.dataset.watch) { const r = listReplays().find((x) => x.id === b.dataset.watch); if (r) { audio.unlock(); startGame(r.setup, null, r); } }
   else if (b.dataset.export) { const r = listReplays().find((x) => x.id === b.dataset.export); if (r) exportReplay(r); }
@@ -426,6 +478,7 @@ menuPanel.addEventListener('click', (e) => {
 
 // Settings apply as soon as a control moves
 menuPanel.addEventListener('input', (e) => {
+  if (e.target.dataset.lobby) return lobbyChange(e.target);
   const key = e.target.dataset.set;
   if (!key) return;
   settings[key] = typeof settings[key] === 'number' ? Number(e.target.value) : e.target.value;
@@ -488,6 +541,85 @@ loadBtn.addEventListener('click', () => { audio.unlock(); openMenu('load'); });
 document.getElementById('settings').addEventListener('click', () => openMenu('settings'));
 document.getElementById('campaign').addEventListener('click', () => { audio.unlock(); openMenu('campaign'); });
 document.getElementById('replays').addEventListener('click', () => { audio.unlock(); openMenu('replays'); });
+document.getElementById('online').addEventListener('click', () => { audio.unlock(); openMenu('online'); });
+
+// ---------- online lobby ----------
+let lobby = null; // { net, state }
+const SIDES = Object.keys(FACTIONS);
+const ONLINE_MAPS = Object.keys(MAPS).filter((id) => !MAPS[id].custom); // everyone needs the same map
+
+async function goOnline(kind) {
+  const name = document.getElementById('net-name').value.trim();
+  const code = document.getElementById('net-code').value.trim();
+  settings.netName = name;
+  saveSettings();
+  if (kind === 'join' && code.length !== 4) { setView('online', { note: 'Enter the 4-letter code from the host.' }); return; }
+  try {
+    const net = kind === 'host' ? await Net.host(name) : await Net.join(code, name);
+    lobby = { net, state: null };
+    net.listen(onNetMessage);
+    setView('lobby');
+  } catch (err) {
+    setView('online', { note: location.protocol === 'file:' || err.message.includes('Failed to fetch')
+      ? 'Online play needs the game served by its own server (npm start).' : err.message });
+  }
+}
+
+function onNetMessage(msg) {
+  if (!lobby) return;
+  if (msg.k === 'lobby') { lobby.state = msg; if (menu?.view === 'lobby') renderMenu(); }
+  if (msg.k === 'closed') { lobby.net.close(); lobby = null; openMenu('online', { note: 'The host closed the game.' }); }
+  if (msg.k === 'start') { audio.unlock(); startGame(msg.setup, null, null, { net: lobby.net, you: msg.you }); }
+  if (msg.k === 'left' && session?.game.net) session.game.notify(`${msg.name} left the battle`, 'warn', 0);
+  if (msg.k === 'error' && !session && menu?.view === 'lobby') setView('online', { note: 'Lost the connection to the server.' });
+}
+
+function lobbyHtml() {
+  const st = lobby?.state;
+  if (!st) return '<h1>Connecting…</h1><div class="menu-buttons"><button data-act="leave-lobby" class="secondary">Back</button></div>';
+  const host = st.host, s = st.settings;
+  const opt = (list, cur, label) => list.map((v) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${label(v)}</option>`).join('');
+  const slots = st.slots.map((sl, i) => {
+    const mine = i === st.you, canSide = mine || (host && !sl.name);
+    return `<div class="slot"><span class="num">${i + 1}</span>
+      <div class="meta"><b>${sl.name ? sl.name + (mine ? ' (you)' : '') : 'Computer'}</b><span>Team ${sl.team + 1}</span></div>
+      <select data-lobby="faction" data-slot="${i}" ${canSide ? '' : 'disabled'}>${opt(SIDES, sl.faction, (f) => FACTIONS[f].name)}</select>
+      ${sl.name ? '' : `<button data-sit="${i}" class="secondary">Sit here</button>`}</div>`;
+  }).join('');
+  return `
+    <h1>Game ${st.code}</h1>
+    <p class="sub">${host ? 'Give this code to the other players. Empty seats are played by the computer.' : 'Waiting for the host to start.'}</p>
+    <div class="settings">
+      <label>Map <select data-lobby="map" ${host ? '' : 'disabled'}>${opt(ONLINE_MAPS.filter((id) => mapSupports(id, MODES[s.mode].teams.length) || id === s.map), s.map, (id) => MAPS[id].name)}</select></label>
+      <label>Mode <select data-lobby="mode" ${host ? '' : 'disabled'}>${opt(Object.keys(MODES).filter((md) => mapSupports(s.map, MODES[md].teams.length)), s.mode, (md) => MODES[md].name)}</select></label>
+      <label>Computer players <select data-lobby="difficulty" ${host ? '' : 'disabled'}>${opt(['normal', 'hard'], s.difficulty, (d) => (d === 'hard' ? 'Hard' : 'Normal'))}</select></label>
+    </div>
+    <div class="slots">${slots}</div>
+    <div class="menu-buttons row">
+      ${host ? '<button data-act="start-online">Start battle</button>' : ''}
+      <button data-act="leave-lobby" class="secondary">Leave</button>
+    </div>`;
+}
+
+function lobbyChange(el) {
+  const st = lobby?.state;
+  if (!st) return;
+  if (el.dataset.lobby === 'faction') lobby.net.act({ act: 'faction', slot: +el.dataset.slot, faction: el.value });
+  else lobby.net.act({ act: 'settings', ...st.settings, [el.dataset.lobby]: el.value });
+}
+
+// "Waiting for …" and desync warnings during an online battle
+const netEl = document.getElementById('net-status');
+let waited = 0;
+function updateNetStatus(game, steps) {
+  const net = game.net;
+  waited = steps ? 0 : waited + 1;
+  let text = '';
+  if (net.desync) text = 'Out of sync with the other players: this battle may differ between screens.';
+  else if (waited > 30) text = `Waiting for ${net.waitingFor(game.tick).map((i) => game.players[i].name).join(', ') || 'players'}…`;
+  if (netEl.textContent !== text) netEl.textContent = text;
+  netEl.hidden = !text;
+}
 document.getElementById('replay-file').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   e.target.value = '';

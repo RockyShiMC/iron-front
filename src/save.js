@@ -45,7 +45,7 @@ export function snapshot(game, renderer) {
     version: VERSION,
     seed: game.seed,
     setup: game.setup,
-    nextId: peekNextId(),
+    nextId: game.nextId ?? peekNextId(),
     camera: renderer ? renderer.toWorld(renderer.viewW / 2, renderer.viewH / 2) : null,
     state: {
       time: game.time,
@@ -145,6 +145,7 @@ export function restore(data) {
     for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) g.map.buildingAt[g.map.idx(x, y)] = b;
   }
   setNextId(data.nextId);
+  g.nextId = data.nextId;
   return { game: g, camera: data.camera };
 }
 
