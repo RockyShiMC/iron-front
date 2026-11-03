@@ -22,9 +22,10 @@ export class Net {
     return data;
   }
 
-  static async host(name) {
-    const { code, token } = await Net.request('', { name });
-    return new Net(code, token);
+  // code: the one the host chose, or empty for a made-up one
+  static async host(name, code = '') {
+    const { code: got, token } = await Net.request('', { name, code });
+    return new Net(got, token);
   }
 
   static async join(code, name) {

@@ -1,6 +1,6 @@
 // Zero-dependency server: `node server.js` then open http://localhost:8080
 // Serves the game's files, and relays online games between players:
-//   POST /api/rooms                 create a room          -> { code, token }
+//   POST /api/rooms                 create a room (optionally with a chosen code) -> { code, token }
 //   POST /api/rooms/CODE/join       join one               -> { token }
 //   GET  /api/rooms/CODE/events     Server-Sent Events: lobby updates, game start, turns
 //   POST /api/rooms/CODE/act        lobby changes, start, and each player's turns
@@ -157,7 +157,11 @@ const cleanName = (n) => String(n || 'Commander').replace(/[<>&"]/g, '').trim().
 async function api(req, res, parts, query) {
   if (parts.length === 0 && req.method === 'POST') {
     const body = await readJson(req);
-    const code = newCode(), token = newToken();
+    // the host may pick the code (3-8 letters or digits); otherwise one is made up
+    const wanted = String(body?.code || '').trim().toUpperCase();
+    if (wanted && !/^[A-Z0-9]{3,8}$/.test(wanted)) return json(res, 400, { error: 'Codes are 3 to 8 letters or digits' });
+    if (wanted && rooms.has(wanted)) return json(res, 409, { error: 'That code is already in use. Pick another, or Join it' });
+    const code = wanted || newCode(), token = newToken();
     const room = { code, host: token, members: new Map(), settings: { map: 'random', mode: '1v1', difficulty: 'normal' }, started: false, created: Date.now() };
     room.slots = makeSlots('1v1');
     room.slots[0].human = token;

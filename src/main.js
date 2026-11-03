@@ -373,11 +373,13 @@ function renderMenu() {
   } else if (v === 'online') {
     html = `
       <h1>Play online</h1>
-      <p class="sub">Everyone opens this game from the same server. On your network, others use your computer's address
-        (shown in the terminal when the server starts) with port ${location.port || 80}.</p>
+      <p class="sub">Everyone opens this game from the same server: the host's computer address with port ${location.port || 80}
+        (the server prints it when it starts).</p>
+      <p class="sub"><b>Host:</b> type any code you like (or leave it empty for a random one) and press Host.
+        <b>Others:</b> type the same code and press Join.</p>
       <div class="settings">
         <label>Your name <input type="text" id="net-name" maxlength="20" value="${settings.netName || ''}" placeholder="Commander"></label>
-        <label>Game code <input type="text" id="net-code" maxlength="4" placeholder="ABCD" style="text-transform:uppercase"></label>
+        <label>Game code <input type="text" id="net-code" maxlength="8" placeholder="e.g. 1234" value="${menu.code || ''}" style="text-transform:uppercase"></label>
       </div>
       <p class="note">${menu.note}</p>
       <div class="menu-buttons row">
@@ -573,15 +575,17 @@ async function goOnline(kind) {
   const code = document.getElementById('net-code').value.trim();
   settings.netName = name;
   saveSettings();
-  if (kind === 'join' && code.length !== 4) { setView('online', { note: 'Enter the 4-letter code from the host.' }); return; }
+  if (kind === 'join' && !code) { setView('online', { note: "Enter the host's game code.", code }); return; }
   try {
-    const net = kind === 'host' ? await Net.host(name) : await Net.join(code, name);
+    const net = kind === 'host' ? await Net.host(name, code) : await Net.join(code, name);
     lobby = { net, state: null };
     net.listen(onNetMessage);
     setView('lobby');
   } catch (err) {
-    setView('online', { note: location.protocol === 'file:' || err.message.includes('Failed to fetch')
-      ? 'Online play needs the game served by its own server (npm start).' : err.message });
+    let note = location.protocol === 'file:' || err.message.includes('Failed to fetch')
+      ? 'Online play needs the game served by its own server (npm start).' : err.message;
+    if (kind === 'join' && err.message.startsWith('No game')) note = `No game with code ${code.toUpperCase()} on this server yet. The host presses Host first, with that code.`;
+    setView('online', { note, code });
   }
 }
 

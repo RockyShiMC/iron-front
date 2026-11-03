@@ -57,8 +57,8 @@ The layout is made for landscape tablets; phone screens are too small for the si
 
 `npm start` also runs the online relay. Press **Online** on the start screen:
 
-1. One player picks a name and presses **Host a game**, and gets a 4-letter code
-2. The others open the game from the **same server** and press **Join** with that code. On your home network, use the host computer's address that the server prints when it starts (for example `http://192.168.1.20:8080`)
+1. One player types a name and any game code they like (e.g. `1234`; leave it empty for a random one) and presses **Host a game**
+2. The others open the game from the **same server**, type the same code and press **Join**. On your home network, use the host computer's address that the server prints when it starts (for example `http://192.168.1.20:8080`)
 3. The host picks the map, mode (1 vs 1 up to free for all) and computer difficulty. Everyone picks a side; any seat can be taken with **Sit here**; empty seats are played by the computer
 4. The host presses **Start battle**
 
