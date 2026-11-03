@@ -35,6 +35,16 @@
   <div id="messages"></div>
   <div id="sw-timers"></div>
   <div id="net-status" hidden></div>
+  <div id="touch-bar" hidden>
+    <button data-key="q" title="Select all combat units">Army</button>
+    <button data-key="a" data-mode="attackmove">Attack-move</button>
+    <button data-key="f" data-mode="forcefire">Force fire</button>
+    <button data-key="g" data-mode="guard">Guard</button>
+    <button data-key="s">Stop</button>
+    <button data-key="r">Repair</button>
+    <button data-key="d">Evacuate</button>
+    <button data-toggle="queue" title="Orders are added as waypoints">Queue</button>
+  </div>
   <div id="replay-bar" hidden>
     <span class="label">REPLAY</span>
     <button data-rp="pause">❚❚</button>
@@ -154,6 +164,7 @@
         <tr><td>H</td><td>Jump to base</td></tr>
         <tr><td>Arrows / screen edge / middle drag</td><td>Scroll</td></tr>
         <tr><td>Esc</td><td>Menu: pause, save, load, restart, quit</td></tr>
+        <tr><td>Touch</td><td>Tap: select / order · drag: scroll · hold then drag: box select · two-finger tap: cancel · hold a sidebar item: cancel it</td></tr>
         <tr><td>P</td><td>Pause</td></tr>
         <tr><td>M / V / U</td><td>Toggle sound effects / announcer / unit voices</td></tr>
       </table>

@@ -28,6 +28,8 @@ export class Input {
     this.lastGroupKey = { time: 0, n: null };
     this.paused = false;
     this.enabled = false; // set once the match starts
+    this.touch = null; // the finger(s) on the battlefield right now
+    this.queueToggle = false; // touch: the command bar's "Queue" stands in for Shift
     this.bind();
   }
 
@@ -69,9 +71,59 @@ export class Input {
       this.wallLine = null;
     }, opts);
     c.addEventListener('mouseleave', () => { this.mouse.inside = false; }, opts);
+    this.bindTouch(opts);
     window.addEventListener('keydown', (e) => this.keyDown(e), opts);
     window.addEventListener('keyup', (e) => this.keys.delete(e.key), opts);
     window.addEventListener('blur', () => this.keys.clear(), opts);
+  }
+
+  // Touch: tap = click, one-finger drag = scroll, hold then drag = box select,
+  // two-finger tap = cancel (right click). Placing a building, a drag moves it.
+  bindTouch(opts) {
+    const c = this.canvas, o = { ...opts, passive: false };
+    let hold = null;
+    c.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      clearTimeout(hold);
+      if (e.touches.length >= 2) { this.touch = { two: true, time: performance.now() }; this.down = null; this.dragRect = null; return; }
+      const p = this.local(e.touches[0]);
+      Object.assign(this.mouse, { x: p.x, y: p.y, inside: true });
+      this.touch = { x: p.x, y: p.y, lx: p.x, ly: p.y, mode: null };
+      hold = setTimeout(() => {
+        if (this.touch && !this.touch.mode && !this.placing) { this.touch.mode = 'box'; this.down = { x: p.x, y: p.y }; navigator.vibrate?.(15); }
+      }, 350);
+    }, o);
+    c.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = this.touch;
+      if (!t || t.two) return;
+      const p = this.local(e.touches[0]);
+      Object.assign(this.mouse, { x: p.x, y: p.y });
+      if (!t.mode && Math.hypot(p.x - t.x, p.y - t.y) > 10) { t.mode = this.placing ? 'place' : 'pan'; clearTimeout(hold); }
+      if (t.mode === 'pan') {
+        this.r.cam.x -= p.x - t.lx;
+        this.r.cam.y -= p.y - t.ly;
+        this.r.clampCam();
+      } else if (t.mode === 'box') {
+        this.dragRect = { x: Math.min(p.x, t.x), y: Math.min(p.y, t.y), w: Math.abs(p.x - t.x), h: Math.abs(p.y - t.y) };
+      }
+      t.lx = p.x;
+      t.ly = p.y;
+    }, o);
+    c.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      clearTimeout(hold);
+      const t = this.touch;
+      if (!t || e.touches.length) return;
+      this.touch = null;
+      this.mouse.inside = false;
+      if (t.two) { if (performance.now() - t.time < 350) this.cancel(); return; }
+      if (t.mode === 'box' && this.dragRect) this.boxSelect(this.dragRect, this.queueToggle);
+      else if (t.mode === null || t.mode === 'box' || t.mode === 'place') this.click(t.lx, t.ly, { shiftKey: this.queueToggle });
+      this.down = null;
+      this.dragRect = null;
+    }, o);
+    c.addEventListener('touchcancel', () => { clearTimeout(hold); this.touch = null; this.down = null; this.dragRect = null; }, opts);
   }
 
   local(e) {
@@ -443,7 +495,7 @@ export class Input {
     if (this.keys.has('ArrowRight')) vx += 1;
     if (this.keys.has('ArrowUp')) vy -= 1;
     if (this.keys.has('ArrowDown')) vy += 1;
-    if (this.enabled && this.mouse.inside && !this.down && !this.pan) {
+    if (this.enabled && this.mouse.inside && !this.down && !this.pan && !this.touch) {
       if (this.mouse.x < EDGE) vx -= 1;
       if (this.mouse.x > this.r.viewW - EDGE) vx += 1;
       if (this.mouse.y < EDGE) vy -= 1;

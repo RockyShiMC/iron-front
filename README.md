@@ -37,6 +37,22 @@ Four short missions, each unlocking the next (progress is kept in the browser). 
 | 3 | Black Gold | Syndicate | Capture both oil derricks with engineers, then destroy the Soviet Construction Yard |
 | 4 | Ghost Protocol | Syndicate | Alone with the cloaked Specter: destroy the Missile Silo before it launches at 6:00 |
 
+## Touch screens
+
+On a tablet the game plays by touch, and a command bar appears for the keyboard-only orders (it can be forced on or off in Settings):
+
+| Gesture | Action |
+|---|---|
+| Tap | Select / move / attack (like a left click) |
+| One-finger drag | Scroll the map (while placing a building: move it) |
+| Hold, then drag | Box select |
+| Two-finger tap | Cancel / deselect (like a right click) |
+| Drag on the minimap | Move the view |
+| Hold a sidebar item | Cancel it |
+| Command bar | Army (select all combat units), Attack-move, Force fire, Guard, Stop, Repair, Evacuate, Queue (next orders become waypoints) |
+
+The layout is made for landscape tablets; phone screens are too small for the sidebar.
+
 ## Online play
 
 `npm start` also runs the online relay. Press **Online** on the start screen:

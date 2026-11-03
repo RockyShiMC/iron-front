@@ -1,4 +1,5 @@
 import { FACTIONS, POWERS, defOf } from './config.js';
+import { settings } from './settings.js';
 import { categoryOf } from './player.js';
 
 export class UI {
@@ -44,6 +45,7 @@ export class UI {
       if (e.target.dataset.act !== 'evacuate') return;
       for (const b of this.input.selection) if (b.isBuilding && b.garrison?.length) this.g.command({ type: 'evacuate', t: b.id });
     }, { signal: this.signal });
+    this.bindTouchBar();
     this.el.powers.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn) return;
@@ -55,6 +57,21 @@ export class UI {
       this.g.sound('click');
       this.g.notify('Select target', 'info', 0.5);
     }, { signal: this.signal });
+  }
+
+  // Buttons for the keyboard commands, for touch screens
+  bindTouchBar() {
+    const bar = document.getElementById('touch-bar');
+    const on = settings.touch === 'on' || (settings.touch !== 'off' && window.matchMedia('(pointer: coarse)').matches);
+    bar.hidden = !on || !!this.g.replay;
+    bar.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.key) this.input.keyDown({ key: b.dataset.key, target: document.body, preventDefault() {} });
+      if (b.dataset.toggle === 'queue') this.input.queueToggle = !this.input.queueToggle;
+      this.g.sound('click');
+    }, { signal: this.signal });
+    this.touchBar = bar;
   }
 
   // Clear everything this battle put in the sidebar (listeners go with the abort signal)
@@ -76,6 +93,11 @@ export class UI {
         btn.innerHTML = `<span class="prog"></span><span class="name">${def.name}</span><span class="cost">$${def.cost}</span><span class="count"></span><span class="state"></span>`;
         btn.addEventListener('click', () => this.itemClick(key));
         btn.addEventListener('contextmenu', (e) => { e.preventDefault(); this.itemCancel(key); });
+        // touch: press and hold to cancel (some tablets never send a contextmenu)
+        let hold = null, held = false;
+        btn.addEventListener('touchstart', () => { held = false; hold = setTimeout(() => { held = true; this.itemCancel(key); navigator.vibrate?.(15); }, 550); }, { passive: true });
+        btn.addEventListener('touchend', (e) => { clearTimeout(hold); if (held) e.preventDefault(); });
+        btn.addEventListener('touchmove', () => clearTimeout(hold), { passive: true });
         btn.title = `${def.name} — $${def.cost}${def.prereq ? `\nRequires: ${def.prereq.map((k) => defOf(k).name).join(', ')}` : ''}\nLeft click: build · Right click: cancel`;
         this.el.items.appendChild(btn);
         this.buttons.push({ key, tab: t.id, btn, prog: btn.querySelector('.prog'), count: btn.querySelector('.count'), state: btn.querySelector('.state') });
@@ -98,6 +120,10 @@ export class UI {
     mm.addEventListener('mousemove', (e) => { if (dragging) go(e); }, { signal: this.signal });
     window.addEventListener('mouseup', () => { dragging = false; }, { signal: this.signal });
     mm.addEventListener('contextmenu', (e) => e.preventDefault(), { signal: this.signal });
+    // drag a finger across the minimap to move the view
+    const touchGo = (e) => { e.preventDefault(); go({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, button: 0, buttons: 1 }); };
+    mm.addEventListener('touchstart', touchGo, { signal: this.signal, passive: false });
+    mm.addEventListener('touchmove', touchGo, { signal: this.signal, passive: false });
   }
 
   itemClick(key) {
@@ -213,6 +239,10 @@ export class UI {
     this.el.sfx.textContent = `Sound: ${this.audio.sfxOn ? 'On' : 'Off'}`;
     this.el.voice.textContent = `EVA: ${this.audio.voiceOn ? 'On' : 'Off'}`;
     this.el.units.textContent = `Units: ${this.audio.unitVoiceOn ? 'On' : 'Off'}`;
+    if (this.touchBar && !this.touchBar.hidden) {
+      for (const b of this.touchBar.querySelectorAll('[data-mode]')) b.classList.toggle('on', this.input.mode === b.dataset.mode);
+      this.touchBar.querySelector('[data-toggle=queue]').classList.toggle('on', this.input.queueToggle);
+    }
     this.el.sell.classList.toggle('active', this.input.mode === 'sell');
     this.el.repair.classList.toggle('active', this.input.mode === 'repair');
 

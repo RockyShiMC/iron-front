@@ -359,6 +359,7 @@ function renderMenu() {
         <label>Sound effects ${range('sfxVolume', 0, 1, 0.05)}</label>
         <label>Voices ${range('voiceVolume', 0, 1, 0.05)}</label>
         <label>Health bars <select data-set="healthBars">${opt('healthBars', [['selected', 'Selected only'], ['damaged', 'Damaged units'], ['all', 'Always']])}</select></label>
+        <label>Touch command bar <select data-set="touch">${opt('touch', [['auto', 'On touch screens'], ['on', 'Always'], ['off', 'Never']])}</select></label>
       </div>
       <div class="menu-buttons"><button data-act="back" class="secondary">Back</button></div>`;
   } else if (v === 'online') {
@@ -484,6 +485,7 @@ menuPanel.addEventListener('input', (e) => {
   settings[key] = typeof settings[key] === 'number' ? Number(e.target.value) : e.target.value;
   saveSettings();
   audio.applyVolume();
+  if (key === 'touch' && session) { session.ui.touchBar.hidden = settings.touch === 'off' || (settings.touch === 'auto' && !matchMedia('(pointer: coarse)').matches) || !!session.game.replay; }
 });
 
 // ---------- setup screen ----------

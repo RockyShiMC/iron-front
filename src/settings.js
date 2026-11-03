@@ -7,6 +7,7 @@ export const DEFAULTS = {
   sfxVolume: 0.8,
   voiceVolume: 0.9, // EVA and unit voices
   healthBars: 'selected', // 'selected' | 'damaged' | 'all'
+  touch: 'auto', // command bar for touch screens: 'auto' | 'on' | 'off'
 };
 
 export const settings = { ...DEFAULTS };

@@ -434,3 +434,20 @@ body[data-faction="syndicate"] #tabs button.active { background: #1d4744; border
 .settings input[type=text] { width: 200px; background: var(--panel-2); color: var(--text); border: 1px solid var(--edge); padding: 4px 6px; }
 .slot select { background: var(--panel-2); color: var(--text); border: 1px solid var(--edge); padding: 3px; }
 .slot select:disabled { opacity: 0.6; }
+
+/* Touch */
+#game, #minimap { touch-action: none; }
+#touch-bar {
+  position: absolute; left: 8px; bottom: 8px; z-index: 5;
+  display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - var(--sidebar-w) - 16px);
+}
+#touch-bar[hidden] { display: none; }
+#touch-bar button {
+  min-width: 64px; min-height: 44px; padding: 6px 10px;
+  background: rgba(20, 26, 30, 0.88); color: var(--text); border: 1px solid var(--edge);
+  font: 13px "Segoe UI", system-ui, sans-serif; touch-action: manipulation;
+}
+#touch-bar button.on { border-color: var(--accent); background: #34434c; color: #fff; }
+@media (pointer: coarse) {
+  #tabs button, #actions button, #audio-ctl button, #btn-menu { min-height: 34px; }
+}
